@@ -4,6 +4,8 @@ members = [
     "can-hal",
     "can-hal-socketcan",
     "can-hal-pcan",
+    "can-hal-kvaser",
     "examples/can-hal-pcan",
     "examples/can-hal-socketcan",
+    "examples/can-hal-kvaser",
 ]

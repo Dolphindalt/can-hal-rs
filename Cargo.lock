@@ -25,6 +25,24 @@ name = "can-hal"
 version = "0.1.0"
 
 [[package]]
+name = "can-hal-kvaser"
+version = "0.1.0"
+dependencies = [
+ "can-hal",
+ "libc",
+ "libloading",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "can-hal-kvaser-examples"
+version = "0.0.0"
+dependencies = [
+ "can-hal",
+ "can-hal-kvaser",
+]
+
+[[package]]
 name = "can-hal-pcan"
 version = "0.1.0"
 dependencies = [

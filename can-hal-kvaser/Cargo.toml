@@ -1,20 +1,20 @@
 [package]
-name = "can-hal-pcan"
+name = "can-hal-kvaser"
 version = "0.1.0"
 edition = "2021"
-description = "PCAN-Basic backend for can-hal traits (Windows and Linux)"
+description = "KVASER CANlib backend for can-hal traits (Windows and Linux)"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/Dolphindalt/can-hal-rs"
-keywords = ["can", "can-bus", "pcan", "peak", "canfd"]
+keywords = ["can", "can-bus", "kvaser", "canlib", "canfd"]
 categories = ["hardware-support"]
 
 [dependencies]
 can-hal = { path = "../can-hal" }
 libloading = "0.8"
 
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading"] }
-
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation"] }

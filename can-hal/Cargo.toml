@@ -5,6 +5,7 @@ edition = "2021"
 description = "Hardware-agnostic traits for CAN bus communication"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
+repository = "https://github.com/Dolphindalt/can-hal-rs"
 keywords = ["can", "can-bus", "hal", "canfd", "automotive"]
 categories = ["hardware-support", "embedded"]
 

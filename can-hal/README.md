@@ -33,6 +33,8 @@ fn echo<T: Transmit<Error = E> + Receive<Error = E>, E: can_hal::CanError>(
 ## Backend crates
 
 - [`can-hal-socketcan`](https://crates.io/crates/can-hal-socketcan) — Linux SocketCAN
+- [`can-hal-pcan`](https://crates.io/crates/can-hal-pcan) — PEAK PCAN-Basic (Windows and Linux)
+- [`can-hal-kvaser`](https://crates.io/crates/can-hal-kvaser) — KVASER CANlib (Windows and Linux)
 
 ## License
 

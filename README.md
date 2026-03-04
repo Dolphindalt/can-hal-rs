@@ -9,6 +9,7 @@ Hardware-agnostic CAN bus traits for Rust, with backend implementations for Linu
 | [`can-hal`](can-hal/) | Core traits: `Transmit`, `Receive`, `TransmitFd`, `ReceiveFd`, `Driver`, `ChannelBuilder`, `Filterable`, `BusStatus` |
 | [`can-hal-socketcan`](can-hal-socketcan/) | Linux SocketCAN backend |
 | [`can-hal-pcan`](can-hal-pcan/) | PEAK PCAN-Basic backend (Windows and Linux) |
+| [`can-hal-kvaser`](can-hal-kvaser/) | KVASER CANlib backend (Windows and Linux) |
 
 ## Example
 
