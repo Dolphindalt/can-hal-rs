@@ -1,0 +1,17 @@
+[package]
+name = "can-hal-isotp"
+version = "0.1.0"
+edition = "2021"
+description = "ISO-TP (ISO 15765-2) transport layer for can-hal"
+license = "MIT OR Apache-2.0"
+keywords = ["can", "isotp", "automotive", "uds"]
+
+[features]
+async = ["can-hal/async", "dep:tokio"]
+
+[dependencies]
+can-hal = { path = "../can-hal" }
+tokio = { version = "1", features = ["time"], optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }

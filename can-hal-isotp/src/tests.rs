@@ -1,0 +1,432 @@
+use std::collections::VecDeque;
+use std::time::{Duration, Instant};
+
+use can_hal::channel::{Receive, Transmit};
+use can_hal::frame::{CanFrame, Timestamped};
+use can_hal::id::CanId;
+
+use crate::channel::IsoTpChannel;
+use crate::config::{AddressingMode, IsoTpConfig};
+use crate::error::IsoTpError;
+
+// ---------------------------------------------------------------------------
+// Mock
+// ---------------------------------------------------------------------------
+
+/// Minimal error type for the mock channel.
+///
+/// `can_hal::error::CanError` has a blanket impl for all
+/// `std::error::Error + Send + Sync + 'static` types, so no explicit impl is needed.
+#[derive(Debug)]
+pub struct MockError;
+
+impl std::fmt::Display for MockError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MockError")
+    }
+}
+
+impl std::error::Error for MockError {}
+
+pub struct MockChannel {
+    pub tx_frames: Vec<CanFrame>,
+    pub rx_queue: VecDeque<CanFrame>,
+}
+
+impl MockChannel {
+    pub fn new(rx: impl IntoIterator<Item = CanFrame>) -> Self {
+        MockChannel {
+            tx_frames: Vec::new(),
+            rx_queue: rx.into_iter().collect(),
+        }
+    }
+}
+
+impl Transmit for MockChannel {
+    type Error = MockError;
+    fn transmit(&mut self, frame: &CanFrame) -> Result<(), MockError> {
+        self.tx_frames.push(frame.clone());
+        Ok(())
+    }
+}
+
+impl Receive for MockChannel {
+    type Error = MockError;
+
+    fn receive(&mut self) -> Result<Timestamped<CanFrame>, MockError> {
+        match self.rx_queue.pop_front() {
+            Some(f) => Ok(Timestamped::new(f, Instant::now())),
+            None => Err(MockError),
+        }
+    }
+
+    fn try_receive(&mut self) -> Result<Option<Timestamped<CanFrame>>, MockError> {
+        Ok(self
+            .rx_queue
+            .pop_front()
+            .map(|f| Timestamped::new(f, Instant::now())))
+    }
+
+    fn receive_timeout(
+        &mut self,
+        _timeout: Duration,
+    ) -> Result<Option<Timestamped<CanFrame>>, MockError> {
+        Ok(self
+            .rx_queue
+            .pop_front()
+            .map(|f| Timestamped::new(f, Instant::now())))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn tx_id() -> CanId {
+    CanId::new_standard(0x7E0).unwrap()
+}
+
+fn rx_id() -> CanId {
+    CanId::new_standard(0x7E8).unwrap()
+}
+
+fn default_config() -> IsoTpConfig {
+    IsoTpConfig {
+        timeout: Duration::from_millis(500),
+        max_fc_wait: 3,
+        ..IsoTpConfig::new(tx_id(), rx_id())
+    }
+}
+
+fn make_frame(id: CanId, data: &[u8]) -> CanFrame {
+    CanFrame::new(id, data).unwrap()
+}
+
+/// Build a Flow Control frame on the rx_id.
+fn fc_frame(flag: u8, bs: u8, stmin: u8) -> CanFrame {
+    make_frame(rx_id(), &[0x30 | flag, bs, stmin])
+}
+
+fn fc_cts() -> CanFrame {
+    fc_frame(0, 0, 0)
+}
+
+fn fc_wait() -> CanFrame {
+    fc_frame(1, 0, 0)
+}
+
+fn fc_overflow() -> CanFrame {
+    fc_frame(2, 0, 0)
+}
+
+// ---------------------------------------------------------------------------
+// Send tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_send_single_frame() {
+    let mock = MockChannel::new(vec![]);
+    let mut ch = IsoTpChannel::new(mock, default_config());
+
+    let payload = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
+    ch.send(&payload).unwrap();
+
+    let inner = ch.into_inner();
+    assert_eq!(inner.tx_frames.len(), 1);
+    let data = inner.tx_frames[0].data();
+    // PCI byte: SF with DL=7
+    assert_eq!(data[0], 0x07);
+    assert_eq!(&data[1..], &payload);
+}
+
+#[test]
+fn test_send_single_frame_padding() {
+    let mut cfg = default_config();
+    cfg.padding = Some(0xCC);
+
+    let mock = MockChannel::new(vec![]);
+    let mut ch = IsoTpChannel::new(mock, cfg);
+
+    let payload = [0xAA, 0xBB, 0xDD];
+    ch.send(&payload).unwrap();
+
+    let inner = ch.into_inner();
+    assert_eq!(inner.tx_frames.len(), 1);
+    let data = inner.tx_frames[0].data();
+    // Padded to 8 bytes
+    assert_eq!(data.len(), 8);
+    assert_eq!(data[0], 0x03); // PCI: SF DL=3
+    assert_eq!(&data[1..4], &payload);
+    // Remaining bytes are padding
+    for &b in &data[4..8] {
+        assert_eq!(b, 0xCC, "padding byte should be 0xCC");
+    }
+}
+
+#[test]
+fn test_send_multi_frame() {
+    // 20 bytes: FF(20) + CFs, need FC(CTS) in rx_queue
+    let payload: Vec<u8> = (0..20).collect();
+
+    let mock = MockChannel::new(vec![fc_cts()]);
+    let mut ch = IsoTpChannel::new(mock, default_config());
+
+    ch.send(&payload).unwrap();
+
+    let inner = ch.into_inner();
+
+    // First frame: FF with 12-bit length
+    let ff_data = inner.tx_frames[0].data();
+    assert_eq!(ff_data[0] & 0xF0, 0x10, "first frame should have FF PCI");
+    let total_len = (((ff_data[0] & 0x0F) as usize) << 8) | (ff_data[1] as usize);
+    assert_eq!(total_len, 20);
+    // FF carries 6 data bytes (8 - 2 header bytes)
+    assert_eq!(&ff_data[2..8], &payload[0..6]);
+
+    // Consecutive frames
+    let cf_count = inner.tx_frames.len() - 1;
+    assert!(cf_count >= 1, "should have at least 1 CF");
+
+    let mut offset = 6;
+    for (i, cf) in inner.tx_frames[1..].iter().enumerate() {
+        let d = cf.data();
+        let expected_sn = ((i + 1) & 0x0F) as u8;
+        assert_eq!(d[0] & 0xF0, 0x20, "CF should have CF PCI");
+        assert_eq!(d[0] & 0x0F, expected_sn, "sequence number mismatch");
+
+        let remaining = payload.len() - offset;
+        let chunk_len = remaining.min(7);
+        assert_eq!(&d[1..1 + chunk_len], &payload[offset..offset + chunk_len]);
+        offset += chunk_len;
+    }
+    assert_eq!(offset, 20, "all bytes should be sent");
+}
+
+#[test]
+fn test_send_fc_wait_then_cts() {
+    let payload: Vec<u8> = (0..20).collect();
+
+    // Two FC(Wait) then FC(CTS)
+    let mock = MockChannel::new(vec![fc_wait(), fc_wait(), fc_cts()]);
+    let mut ch = IsoTpChannel::new(mock, default_config());
+
+    ch.send(&payload).unwrap();
+
+    let inner = ch.into_inner();
+    // Should succeed: FF + CFs
+    assert!(
+        inner.tx_frames.len() >= 2,
+        "should have FF + at least one CF"
+    );
+    assert_eq!(inner.tx_frames[0].data()[0] & 0xF0, 0x10);
+}
+
+#[test]
+fn test_send_fc_wait_limit_exceeded() {
+    let payload: Vec<u8> = (0..20).collect();
+
+    // 4 FC(Wait) frames, but max_fc_wait=3 so it should fail on the 3rd
+    let mock = MockChannel::new(vec![fc_wait(), fc_wait(), fc_wait(), fc_wait()]);
+    let mut ch = IsoTpChannel::new(mock, default_config());
+
+    let result = ch.send(&payload);
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        IsoTpError::WaitLimitExceeded => {}
+        e => panic!("expected WaitLimitExceeded, got {:?}", e),
+    }
+}
+
+#[test]
+fn test_send_fc_overflow() {
+    let payload: Vec<u8> = (0..20).collect();
+
+    let mock = MockChannel::new(vec![fc_overflow()]);
+    let mut ch = IsoTpChannel::new(mock, default_config());
+
+    let result = ch.send(&payload);
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        IsoTpError::BufferOverflow => {}
+        e => panic!("expected BufferOverflow, got {:?}", e),
+    }
+}
+
+#[test]
+fn test_send_long_ff_path() {
+    // Verifies the 32-bit length encoding path (long FF) for payloads > 4095 bytes.
+    // Note: the PayloadTooLarge error (data.len() > 0xFFFF_FFFF) cannot be triggered
+    // in practice on a 64-bit system since such an allocation would fail first.
+    let payload: Vec<u8> = (0..4096).map(|i| (i & 0xFF) as u8).collect();
+
+    // Need FC(CTS) for the wait_for_fc call
+    let mock = MockChannel::new(vec![fc_cts()]);
+    let mut ch = IsoTpChannel::new(mock, default_config());
+
+    ch.send(&payload).unwrap();
+
+    let inner = ch.into_inner();
+    let ff_data = inner.tx_frames[0].data();
+    // 4096 > 0xFFF so this should be a long FF: [0x10, 0x00, 0x00, 0x00, 0x10, 0x00]
+    assert_eq!(ff_data[0], 0x10);
+    assert_eq!(ff_data[1], 0x00);
+    // 4096 = 0x00001000
+    assert_eq!(ff_data[2], 0x00);
+    assert_eq!(ff_data[3], 0x00);
+    assert_eq!(ff_data[4], 0x10);
+    assert_eq!(ff_data[5], 0x00);
+}
+
+// ---------------------------------------------------------------------------
+// Receive tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_receive_single_frame() {
+    let sf = make_frame(rx_id(), &[0x03, 0xAA, 0xBB, 0xCC]);
+    let mock = MockChannel::new(vec![sf]);
+    let mut ch = IsoTpChannel::new(mock, default_config());
+
+    let data = ch.receive().unwrap();
+    assert_eq!(data, vec![0xAA, 0xBB, 0xCC]);
+}
+
+#[test]
+fn test_receive_multi_frame() {
+    // 20-byte message
+    let payload: Vec<u8> = (0..20).collect();
+
+    // First Frame: 12-bit length = 20, header [0x10, 0x14], then 6 data bytes
+    let mut ff_bytes = vec![0x10, 0x14];
+    ff_bytes.extend_from_slice(&payload[0..6]);
+    let ff = make_frame(rx_id(), &ff_bytes);
+
+    // CF sn=1: 7 bytes (payload[6..13])
+    let mut cf1_bytes = vec![0x21];
+    cf1_bytes.extend_from_slice(&payload[6..13]);
+    let cf1 = make_frame(rx_id(), &cf1_bytes);
+
+    // CF sn=2: 7 bytes (payload[13..20])
+    let mut cf2_bytes = vec![0x22];
+    cf2_bytes.extend_from_slice(&payload[13..20]);
+    let cf2 = make_frame(rx_id(), &cf2_bytes);
+
+    let mock = MockChannel::new(vec![ff, cf1, cf2]);
+    let mut ch = IsoTpChannel::new(mock, default_config());
+
+    let data = ch.receive().unwrap();
+    assert_eq!(data, payload);
+
+    // Verify FC(CTS) was transmitted after FF
+    let inner = ch.into_inner();
+    assert!(!inner.tx_frames.is_empty(), "should have sent FC");
+    let fc_data = inner.tx_frames[0].data();
+    assert_eq!(fc_data[0], 0x30, "FC CTS flag byte");
+}
+
+#[test]
+fn test_receive_sequence_error() {
+    let payload: Vec<u8> = (0..20).collect();
+
+    let mut ff_bytes = vec![0x10, 0x14];
+    ff_bytes.extend_from_slice(&payload[0..6]);
+    let ff = make_frame(rx_id(), &ff_bytes);
+
+    // CF sn=1
+    let mut cf1_bytes = vec![0x21];
+    cf1_bytes.extend_from_slice(&payload[6..13]);
+    let cf1 = make_frame(rx_id(), &cf1_bytes);
+
+    // CF sn=3 (should be 2) -- sequence error
+    let mut cf_bad = vec![0x23];
+    cf_bad.extend_from_slice(&payload[13..20]);
+    let cf_bad = make_frame(rx_id(), &cf_bad);
+
+    let mock = MockChannel::new(vec![ff, cf1, cf_bad]);
+    let mut ch = IsoTpChannel::new(mock, default_config());
+
+    let result = ch.receive();
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        IsoTpError::SequenceError { expected, got } => {
+            assert_eq!(expected, 2);
+            assert_eq!(got, 3);
+        }
+        e => panic!("expected SequenceError, got {:?}", e),
+    }
+}
+
+#[test]
+fn test_receive_timeout() {
+    // Empty rx_queue => receive_timeout returns None => Timeout
+    let mock = MockChannel::new(vec![]);
+    let mut ch = IsoTpChannel::new(mock, default_config());
+
+    let result = ch.receive();
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        IsoTpError::Timeout => {}
+        e => panic!("expected Timeout, got {:?}", e),
+    }
+}
+
+#[test]
+fn test_receive_extended_addressing() {
+    let mut cfg = default_config();
+    cfg.addressing = AddressingMode::Extended {
+        target_address: 0xF1,
+    };
+
+    // SF with TA byte prefix: [0xF1, 0x03, 0xAA, 0xBB, 0xCC]
+    let sf = make_frame(rx_id(), &[0xF1, 0x03, 0xAA, 0xBB, 0xCC]);
+    let mock = MockChannel::new(vec![sf]);
+    let mut ch = IsoTpChannel::new(mock, cfg);
+
+    let data = ch.receive().unwrap();
+    assert_eq!(data, vec![0xAA, 0xBB, 0xCC]);
+}
+
+#[test]
+fn test_long_ff() {
+    // Long FF: total length > 4095, uses 32-bit encoding.
+    // We'll use total_len = 5000 = 0x00001388
+    let total_len: usize = 5000;
+
+    // Long FF header: [0x10, 0x00, hi3, hi2, hi1, hi0, data0, data1]
+    // 5000 = 0x00001388
+    let ff_bytes: Vec<u8> = vec![0x10, 0x00, 0x00, 0x00, 0x13, 0x88, 0x00, 0x01];
+    let ff = make_frame(rx_id(), &ff_bytes);
+
+    // FF carries 2 data bytes (8 - 6 header bytes): payload[0..2] = [0x00, 0x01]
+    // Build enough CFs to fill remaining 4998 bytes (7 bytes per CF)
+    let mut payload: Vec<u8> = vec![0x00, 0x01]; // from FF
+    let mut frames: Vec<CanFrame> = vec![ff];
+
+    let mut sn: u8 = 1;
+    while payload.len() < total_len {
+        let remaining = total_len - payload.len();
+        let chunk_len = remaining.min(7);
+        let chunk: Vec<u8> = (0..chunk_len)
+            .map(|j| ((payload.len() + j) & 0xFF) as u8)
+            .collect();
+
+        let mut cf_bytes = vec![0x20 | (sn & 0x0F)];
+        cf_bytes.extend_from_slice(&chunk);
+        frames.push(make_frame(rx_id(), &cf_bytes));
+
+        payload.extend_from_slice(&chunk);
+        sn = (sn + 1) & 0x0F;
+    }
+
+    // Remove the FF from the beginning to just have CFs in rx_queue after FF
+    let ff_frame = frames.remove(0);
+    let mut all_frames = vec![ff_frame];
+    all_frames.extend(frames);
+
+    let mock = MockChannel::new(all_frames);
+    let mut ch = IsoTpChannel::new(mock, default_config());
+
+    let data = ch.receive().unwrap();
+    assert_eq!(data.len(), total_len);
+    assert_eq!(data, payload);
+}

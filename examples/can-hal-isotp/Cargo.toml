@@ -1,0 +1,34 @@
+[package]
+name = "can-hal-isotp-examples"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[example]]
+name = "loopback"
+
+[[example]]
+name = "send"
+
+[[example]]
+name = "receive"
+
+[[example]]
+name = "kernel_interop"
+
+[[example]]
+name = "extended_addressing"
+
+[[example]]
+name = "functional_addressing"
+
+[[example]]
+name = "loopback_fd"
+
+[dependencies]
+can-hal-isotp = { path = "../../can-hal-isotp" }
+can-hal-socketcan = { path = "../../can-hal-socketcan" }
+can-hal = { path = "../../can-hal" }
+
+[dev-dependencies]
+libc = "0.2"

@@ -1,0 +1,260 @@
+use std::collections::VecDeque;
+use std::time::Instant;
+
+use can_hal::async_channel::{AsyncReceive, AsyncTransmit};
+use can_hal::frame::{CanFrame, Timestamped};
+use can_hal::CanId;
+
+use crate::async_channel::AsyncIsoTpChannel;
+use crate::config::IsoTpConfig;
+use crate::error::IsoTpError;
+use crate::frame::FcFlag;
+
+// ---------------------------------------------------------------------------
+// Mock error type
+// ---------------------------------------------------------------------------
+
+#[derive(Debug)]
+struct MockError;
+
+impl std::fmt::Display for MockError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "mock CAN error")
+    }
+}
+
+impl std::error::Error for MockError {}
+
+// ---------------------------------------------------------------------------
+// Async mock CAN channel
+// ---------------------------------------------------------------------------
+
+struct AsyncMockChannel {
+    tx_frames: Vec<CanFrame>,
+    rx_queue: VecDeque<CanFrame>,
+}
+
+impl AsyncMockChannel {
+    fn new() -> Self {
+        Self {
+            tx_frames: Vec::new(),
+            rx_queue: VecDeque::new(),
+        }
+    }
+}
+
+impl AsyncTransmit for AsyncMockChannel {
+    type Error = MockError;
+
+    fn transmit(
+        &mut self,
+        frame: &CanFrame,
+    ) -> impl std::future::Future<Output = Result<(), MockError>> + Send {
+        self.tx_frames.push(frame.clone());
+        async { Ok(()) }
+    }
+}
+
+impl AsyncReceive for AsyncMockChannel {
+    type Error = MockError;
+
+    fn receive(
+        &mut self,
+    ) -> impl std::future::Future<Output = Result<Timestamped<CanFrame>, MockError>> + Send {
+        let frame = self
+            .rx_queue
+            .pop_front()
+            .expect("rx_queue unexpectedly empty");
+        async move { Ok(Timestamped::new(frame, Instant::now())) }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn tx_id() -> CanId {
+    CanId::new_standard(0x7E0).unwrap()
+}
+
+fn rx_id() -> CanId {
+    CanId::new_standard(0x7E8).unwrap()
+}
+
+fn default_config() -> IsoTpConfig {
+    IsoTpConfig::new(tx_id(), rx_id())
+}
+
+/// Build a CAN frame with the given id and raw bytes.
+fn can_frame(id: CanId, data: &[u8]) -> CanFrame {
+    CanFrame::new(id, data).unwrap()
+}
+
+/// Build a Flow Control frame (CTS, bs=0, st_min=0) from the receiver side.
+fn fc_cts_frame() -> CanFrame {
+    let mut buf = [0u8; 8];
+    crate::frame::build_fc(&mut buf, FcFlag::ContinueToSend, 0, 0, 0);
+    can_frame(rx_id(), &buf[..3])
+}
+
+/// Build a Flow Control frame with Wait flag.
+fn fc_wait_frame() -> CanFrame {
+    let mut buf = [0u8; 8];
+    crate::frame::build_fc(&mut buf, FcFlag::Wait, 0, 0, 0);
+    can_frame(rx_id(), &buf[..3])
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_async_send_single_frame() {
+    let mock = AsyncMockChannel::new();
+    let config = default_config();
+    let mut isotp = AsyncIsoTpChannel::new(mock, config);
+
+    let payload = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
+    isotp.send(&payload).await.unwrap();
+
+    let inner = isotp.into_inner();
+    assert_eq!(inner.tx_frames.len(), 1);
+
+    let sent = &inner.tx_frames[0];
+    assert_eq!(sent.id(), tx_id());
+
+    // PCI byte: 0x07 (SF, DL=7)
+    let data = sent.data();
+    assert_eq!(data[0] >> 4, 0x0); // Single Frame type nibble
+    assert_eq!(data[0] & 0x0F, 7); // SF_DL = 7
+    assert_eq!(&data[1..8], &payload);
+}
+
+#[tokio::test]
+async fn test_async_send_multi_frame() {
+    let mut mock = AsyncMockChannel::new();
+
+    // Pre-load an FC(CTS) frame so the sender can proceed after FF.
+    mock.rx_queue.push_back(fc_cts_frame());
+
+    let config = default_config();
+    let mut isotp = AsyncIsoTpChannel::new(mock, config);
+
+    // 20 bytes: FF carries 6 data bytes, then we need CFs for the remaining 14.
+    let payload: Vec<u8> = (0..20).collect();
+    isotp.send(&payload).await.unwrap();
+
+    let inner = isotp.into_inner();
+
+    // Expect: 1 FF + ceil(14/7) = 1 FF + 2 CFs = 3 frames total
+    assert_eq!(inner.tx_frames.len(), 3, "expected FF + 2 CFs");
+
+    // --- First Frame ---
+    let ff = &inner.tx_frames[0];
+    assert_eq!(ff.id(), tx_id());
+    let ff_data = ff.data();
+    assert_eq!(ff_data[0] >> 4, 0x1); // FF type nibble
+    let total_len = (((ff_data[0] & 0x0F) as usize) << 8) | (ff_data[1] as usize);
+    assert_eq!(total_len, 20);
+    // FF payload: bytes 0..6 of original data
+    assert_eq!(&ff_data[2..8], &payload[0..6]);
+
+    // --- Consecutive Frame 1 (SN=1) ---
+    let cf1 = &inner.tx_frames[1];
+    assert_eq!(cf1.id(), tx_id());
+    let cf1_data = cf1.data();
+    assert_eq!(cf1_data[0] >> 4, 0x2); // CF type nibble
+    assert_eq!(cf1_data[0] & 0x0F, 1); // SN = 1
+    assert_eq!(&cf1_data[1..8], &payload[6..13]);
+
+    // --- Consecutive Frame 2 (SN=2) ---
+    let cf2 = &inner.tx_frames[2];
+    assert_eq!(cf2.id(), tx_id());
+    let cf2_data = cf2.data();
+    assert_eq!(cf2_data[0] >> 4, 0x2); // CF type nibble
+    assert_eq!(cf2_data[0] & 0x0F, 2); // SN = 2
+    assert_eq!(&cf2_data[1..], &payload[13..20]);
+}
+
+#[tokio::test]
+async fn test_async_receive_single_frame() {
+    // Build a single-frame ISO-TP message with 5 bytes of data.
+    let payload = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE];
+    let mut sf_buf = [0u8; 8];
+    crate::frame::build_sf(&mut sf_buf, &payload, 0);
+    let sf = can_frame(rx_id(), &sf_buf[..1 + payload.len()]);
+
+    let mut mock = AsyncMockChannel::new();
+    mock.rx_queue.push_back(sf);
+
+    let config = default_config();
+    let mut isotp = AsyncIsoTpChannel::new(mock, config);
+
+    let received = isotp.receive().await.unwrap();
+    assert_eq!(received, payload);
+}
+
+#[tokio::test]
+async fn test_async_receive_multi_frame() {
+    // 20 bytes of data, sent as FF + CFs.
+    let payload: Vec<u8> = (0..20).collect();
+
+    // FF: total_len=20, carries first 6 bytes
+    let mut ff_buf = [0u8; 8];
+    crate::frame::build_ff(&mut ff_buf, &payload, 20, 0);
+    let ff = can_frame(rx_id(), &ff_buf);
+
+    // CF1: SN=1, bytes 6..13
+    let mut cf1_buf = [0u8; 8];
+    crate::frame::build_cf(&mut cf1_buf, &payload[6..13], 1, 0);
+    let cf1 = can_frame(rx_id(), &cf1_buf);
+
+    // CF2: SN=2, bytes 13..20
+    let mut cf2_buf = [0u8; 8];
+    crate::frame::build_cf(&mut cf2_buf, &payload[13..20], 2, 0);
+    let cf2 = can_frame(rx_id(), &cf2_buf);
+
+    let mut mock = AsyncMockChannel::new();
+    mock.rx_queue.push_back(ff);
+    mock.rx_queue.push_back(cf1);
+    mock.rx_queue.push_back(cf2);
+
+    let config = default_config();
+    let mut isotp = AsyncIsoTpChannel::new(mock, config);
+
+    let received = isotp.receive().await.unwrap();
+    assert_eq!(received, payload);
+
+    // Verify that an FC(CTS) frame was transmitted.
+    let inner = isotp.into_inner();
+    assert_eq!(inner.tx_frames.len(), 1);
+    let fc_data = inner.tx_frames[0].data();
+    assert_eq!(fc_data[0] & 0xF0, 0x30); // FC type nibble
+    assert_eq!(fc_data[0] & 0x0F, 0x00); // CTS flag
+}
+
+#[tokio::test]
+async fn test_async_send_fc_wait_limit() {
+    let mut mock = AsyncMockChannel::new();
+
+    // Pre-load 4 FC(Wait) frames. With max_fc_wait=3, the 3rd Wait should
+    // trigger WaitLimitExceeded *before* reading the 4th.
+    for _ in 0..4 {
+        mock.rx_queue.push_back(fc_wait_frame());
+    }
+
+    let mut config = default_config();
+    config.max_fc_wait = 3;
+
+    let mut isotp = AsyncIsoTpChannel::new(mock, config);
+
+    // 20 bytes triggers multi-frame -> will need FC after FF.
+    let payload: Vec<u8> = (0..20).collect();
+    let result = isotp.send(&payload).await;
+
+    assert!(result.is_err(), "expected WaitLimitExceeded error");
+    match result.unwrap_err() {
+        IsoTpError::WaitLimitExceeded => {} // expected
+        other => panic!("expected WaitLimitExceeded, got: {:?}", other),
+    }
+}
