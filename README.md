@@ -1,6 +1,6 @@
 # can-hal
 
-Hardware-agnostic CAN bus traits for Rust, with backend implementations for Linux SocketCAN and PEAK PCAN adapters.
+Hardware-agnostic CAN bus traits for Rust, with backend implementations for Linux SocketCAN, PEAK PCAN, and KVASER adapters.
 
 ## Crates
 
@@ -10,6 +10,7 @@ Hardware-agnostic CAN bus traits for Rust, with backend implementations for Linu
 | [`can-hal-socketcan`](can-hal-socketcan/) | Linux SocketCAN backend |
 | [`can-hal-pcan`](can-hal-pcan/) | PEAK PCAN-Basic backend (Windows and Linux) |
 | [`can-hal-kvaser`](can-hal-kvaser/) | KVASER CANlib backend (Windows and Linux) |
+| [`can-hal-isotp`](can-hal-isotp/) | ISO-TP (ISO 15765-2) transport layer |
 
 ## Example
 
@@ -25,14 +26,38 @@ let frame = CanFrame::new(id, &[0x01, 0x02, 0x03])?;
 channel.transmit(&frame)?;
 ```
 
-Switching to a PCAN adapter requires only changing the driver:
+Switching backends requires only changing the driver:
 
 ```rust
 use can_hal_pcan::PcanDriver;
-
 let driver = PcanDriver::new()?;
 let mut channel = driver.channel(0)?.bitrate(500_000)?.connect()?;
 ```
+
+```rust
+use can_hal_kvaser::KvaserDriver;
+let driver = KvaserDriver::new()?;
+let mut channel = driver.channel(0)?.bitrate(500_000)?.connect()?;
+```
+
+## ISO-TP
+
+Send and receive multi-frame payloads over any `can-hal` backend:
+
+```rust
+use can_hal::CanId;
+use can_hal_isotp::{IsoTpChannel, IsoTpConfig};
+
+let config = IsoTpConfig::new(
+    CanId::new_standard(0x7E0)?,
+    CanId::new_standard(0x7E8)?,
+);
+let mut isotp = IsoTpChannel::new(channel, config);
+isotp.send(&[0x10, 0x01])?;
+let response = isotp.receive()?;
+```
+
+Supports normal, extended, and functional addressing. CAN FD via `IsoTpFdChannel`. Async via the `async` feature flag.
 
 ## License
 
