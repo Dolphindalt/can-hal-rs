@@ -49,3 +49,9 @@ mod convert;
 pub use channel::SocketCanChannel;
 pub use driver::{SocketCanChannelBuilder, SocketCanDriver};
 pub use error::SocketCanError;
+
+// Compile-time assertion: channel must be Send so it can be moved across threads.
+const _: fn() = || {
+    fn assert_send<T: Send>() {}
+    assert_send::<SocketCanChannel>();
+};

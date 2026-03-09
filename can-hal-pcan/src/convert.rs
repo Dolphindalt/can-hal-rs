@@ -27,9 +27,13 @@ pub(crate) fn from_pcan_id(raw_id: u32, msg_type: u8) -> Result<CanId, PcanError
         CanId::new_extended(raw_id)
             .ok_or_else(|| PcanError::InvalidFrame(format!("invalid extended ID: 0x{raw_id:08X}")))
     } else {
-        let id = raw_id as u16;
-        CanId::new_standard(id)
-            .ok_or_else(|| PcanError::InvalidFrame(format!("invalid standard ID: 0x{id:04X}")))
+        if raw_id > 0x7FF {
+            return Err(PcanError::InvalidFrame(format!(
+                "standard ID out of range: 0x{raw_id:08X}"
+            )));
+        }
+        CanId::new_standard(raw_id as u16)
+            .ok_or_else(|| PcanError::InvalidFrame(format!("invalid standard ID: 0x{raw_id:04X}")))
     }
 }
 

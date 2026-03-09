@@ -132,9 +132,7 @@ pub struct PcanChannelBuilder {
     lib: Arc<PcanLibrary>,
     handle: u16,
     bitrate: Option<u16>,
-    #[allow(dead_code)]
     data_bitrate: Option<u32>,
-    #[allow(dead_code)]
     sample_point: Option<f32>,
     fd_timing_string: Option<String>,
 }
@@ -177,7 +175,11 @@ impl ChannelBuilder for PcanChannelBuilder {
 
     fn connect(self) -> Result<Self::Channel, Self::Error> {
         if let Some(ref timing) = self.fd_timing_string {
-            // FD initialization
+            // FD initialization — data_bitrate and sample_point are ignored
+            // because the fd_timing_string contains the full timing parameters.
+            let _ = self.data_bitrate;
+            let _ = self.sample_point;
+
             let c_timing = CString::new(timing.as_str())
                 .map_err(|_| PcanError::InvalidFrame("timing string contains null byte".into()))?;
 
@@ -185,7 +187,9 @@ impl ChannelBuilder for PcanChannelBuilder {
             check_status(status)?;
             PcanChannel::new(self.lib, self.handle, true)
         } else {
-            // Classic CAN initialization
+            // Classic CAN initialization — sample_point is not supported
+            // by PCAN-Basic's CAN_Initialize (fixed at the hardware default).
+            let _ = self.sample_point;
             let baud = self.bitrate.ok_or(PcanError::UnsupportedBitrate(0))?;
 
             // Plug & Play hardware (USB, PCI, LAN): hw_type=0, io_port=0, interrupt=0

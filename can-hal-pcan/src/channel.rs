@@ -28,7 +28,6 @@ pub struct PcanChannel {
     lib: Arc<PcanLibrary>,
     handle: u16,
     event: ReceiveEvent,
-    #[allow(dead_code)]
     fd_mode: bool,
 }
 
@@ -169,6 +168,12 @@ impl TransmitFd for PcanChannel {
     type Error = PcanError;
 
     fn transmit_fd(&mut self, frame: &CanFdFrame) -> Result<(), Self::Error> {
+        if !self.fd_mode {
+            return Err(PcanError::InvalidFrame(
+                "channel was not initialized in FD mode; use fd_timing_string() before connect()"
+                    .into(),
+            ));
+        }
         let mut msg = convert::to_pcan_msg_fd(frame);
         let status = unsafe { (self.lib.write_fd)(self.handle, &mut msg) };
         check_status(status)
@@ -183,6 +188,12 @@ impl ReceiveFd for PcanChannel {
     type Error = PcanError;
 
     fn receive_fd(&mut self) -> Result<Timestamped<Frame>, Self::Error> {
+        if !self.fd_mode {
+            return Err(PcanError::InvalidFrame(
+                "channel was not initialized in FD mode; use fd_timing_string() before connect()"
+                    .into(),
+            ));
+        }
         loop {
             if let Some(frame) = self.read_fd()? {
                 return Ok(Timestamped::new(frame, Instant::now()));
@@ -192,6 +203,12 @@ impl ReceiveFd for PcanChannel {
     }
 
     fn try_receive_fd(&mut self) -> Result<Option<Timestamped<Frame>>, Self::Error> {
+        if !self.fd_mode {
+            return Err(PcanError::InvalidFrame(
+                "channel was not initialized in FD mode; use fd_timing_string() before connect()"
+                    .into(),
+            ));
+        }
         match self.read_fd()? {
             Some(frame) => Ok(Some(Timestamped::new(frame, Instant::now()))),
             None => Ok(None),
@@ -202,6 +219,12 @@ impl ReceiveFd for PcanChannel {
         &mut self,
         timeout: Duration,
     ) -> Result<Option<Timestamped<Frame>>, Self::Error> {
+        if !self.fd_mode {
+            return Err(PcanError::InvalidFrame(
+                "channel was not initialized in FD mode; use fd_timing_string() before connect()"
+                    .into(),
+            ));
+        }
         let deadline = Instant::now() + timeout;
         loop {
             if let Some(frame) = self.read_fd()? {

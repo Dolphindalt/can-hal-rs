@@ -62,7 +62,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Extended addressing with TA=0xF1: receiver filters on this TA byte.
         let config = IsoTpConfig {
             addressing: AddressingMode::Extended {
-                target_address: 0xF1,
+                tx_target_address: 0xF1,
+                rx_target_address: 0xF1,
             },
             timeout: Duration::from_secs(5),
             ..IsoTpConfig::new(
@@ -87,7 +88,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Extended addressing with TA=0xF1: every transmitted frame gets 0xF1 as byte 0.
         let config = IsoTpConfig {
             addressing: AddressingMode::Extended {
-                target_address: 0xF1,
+                tx_target_address: 0xF1,
+                rx_target_address: 0xF1,
             },
             timeout: Duration::from_secs(5),
             ..IsoTpConfig::new(

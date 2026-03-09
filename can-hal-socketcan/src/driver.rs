@@ -1,4 +1,4 @@
-use can_hal::driver::{ChannelBuilder, Driver};
+use can_hal::driver::{ChannelBuilder, Driver, DriverFd};
 
 use crate::channel::SocketCanChannel;
 use crate::error::SocketCanError;
@@ -53,6 +53,8 @@ impl Default for SocketCanDriver {
         Self::new()
     }
 }
+
+impl DriverFd for SocketCanDriver {}
 
 impl Driver for SocketCanDriver {
     type Channel = SocketCanChannel;

@@ -241,9 +241,17 @@ impl Filterable for KvaserChannel {
 
     /// Apply acceptance filters.
     ///
-    /// CANlib supports one (code, mask) pair per frame type (standard / extended).
-    /// Multiple filters of the same type are merged: masks are OR-ed and codes are AND-ed,
-    /// producing the widest range that covers all requested filters.
+    /// CANlib supports only a single (code, mask) pair per frame type (standard /
+    /// extended). When multiple filters of the same type are provided, they are
+    /// merged into one pair: masks are OR-ed (more bits checked) and codes are
+    /// AND-ed (only common bits survive).
+    ///
+    /// **Important**: this merge computes the *intersection* of the filter
+    /// conditions, not the union. If you need to accept IDs 0x100 **and** 0x200,
+    /// a single code/mask pair cannot represent that. In such cases, use a
+    /// permissive mask (e.g., `mask = 0x000` to accept all) and do
+    /// software-level filtering, or provide a single filter whose mask already
+    /// covers the desired range.
     fn set_filters(&mut self, filters: &[Filter]) -> Result<(), KvaserError> {
         // Process standard and extended filters in a single pass each, without
         // heap allocation.

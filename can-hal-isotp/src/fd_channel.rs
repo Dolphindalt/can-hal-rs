@@ -38,7 +38,7 @@ where
         let overhead = self.config.overhead();
         let max_sf_fd = 62 - overhead;
 
-        if data.len() > 0xFFFF_FFFF {
+        if data.len() as u64 > u32::MAX as u64 {
             return Err(IsoTpError::PayloadTooLarge);
         }
 
@@ -67,7 +67,7 @@ where
         let mut sn: u8 = 1;
 
         // Wait for Flow Control
-        let (mut fc_bs, st_min_dur) = self.wait_for_fc()?;
+        let (mut fc_bs, mut st_min_dur) = self.wait_for_fc()?;
         let mut block_count: u16 = 0;
 
         // Send Consecutive Frames
@@ -91,8 +91,9 @@ where
                 }
 
                 if fc_bs > 0 && block_count >= fc_bs as u16 {
-                    let (new_bs, _new_st) = self.wait_for_fc()?;
+                    let (new_bs, new_st) = self.wait_for_fc()?;
                     fc_bs = new_bs;
+                    st_min_dur = new_st;
                     block_count = 0;
                 }
             }
@@ -282,16 +283,16 @@ where
         self.transmit_padded_fd(&mut buf, len)
     }
 
-    /// Pad (if configured) and transmit a CAN FD frame.
+    /// Pad and transmit a CAN FD frame.
+    ///
+    /// CAN FD frames must use a valid DLC size (0-8, 12, 16, 20, 24, 32, 48, 64),
+    /// so the frame is always rounded up to the next valid size. The gap bytes are
+    /// filled with the configured padding byte, or 0x00 if padding is not set.
     fn transmit_padded_fd(&mut self, buf: &mut [u8; 64], len: usize) -> Result<(), IsoTpError<E>> {
-        let send_len = if let Some(pad) = self.config.padding {
-            let padded = next_fd_dlc(len);
-            buf[len..padded].fill(pad);
-            padded
-        } else {
-            next_fd_dlc(len)
-        };
-        self.transmit_fd_frame(&buf[..send_len])
+        let padded = next_fd_dlc(len);
+        let pad_byte = self.config.padding.unwrap_or(0x00);
+        buf[len..padded].fill(pad_byte);
+        self.transmit_fd_frame(&buf[..padded])
     }
 
     /// Transmit a CAN FD frame with the configured tx_id.
@@ -303,20 +304,23 @@ where
             .map_err(IsoTpError::CanError)
     }
 
-    /// Write the target address byte for Extended addressing.
+    /// Write the TX target address byte for Extended addressing.
     fn write_ta(&self, buf: &mut [u8]) {
-        if let AddressingMode::Extended { target_address } = self.config.addressing {
-            buf[0] = target_address;
+        if let AddressingMode::Extended {
+            tx_target_address, ..
+        } = self.config.addressing
+        {
+            buf[0] = tx_target_address;
         }
     }
 
-    /// Check that the target address matches for Extended addressing.
+    /// Check that the RX target address matches for Extended addressing.
     fn check_ta(&self, data: &[u8]) -> bool {
         match self.config.addressing {
             AddressingMode::Normal => true,
-            AddressingMode::Extended { target_address } => {
-                !data.is_empty() && data[0] == target_address
-            }
+            AddressingMode::Extended {
+                rx_target_address, ..
+            } => !data.is_empty() && data[0] == rx_target_address,
         }
     }
 }

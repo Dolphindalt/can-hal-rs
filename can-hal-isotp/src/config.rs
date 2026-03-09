@@ -8,7 +8,17 @@ pub enum AddressingMode {
     /// Normal addressing: only PCI bytes in the payload.
     Normal,
     /// Extended addressing: a target address byte precedes the PCI bytes.
-    Extended { target_address: u8 },
+    ///
+    /// Per ISO 15765-2, the target address (N_TA) in transmitted frames identifies
+    /// the remote ECU, while the target address in received frames identifies the
+    /// local ECU. These are typically different values:
+    ///
+    /// - `tx_target_address`: written into byte 0 of every transmitted CAN frame
+    /// - `rx_target_address`: expected in byte 0 of every received CAN frame
+    Extended {
+        tx_target_address: u8,
+        rx_target_address: u8,
+    },
 }
 
 /// Configuration for an ISO-TP channel.
@@ -92,6 +102,26 @@ impl IsoTpConfig {
         match self.addressing {
             AddressingMode::Normal => 0,
             AddressingMode::Extended { .. } => 1,
+        }
+    }
+
+    /// Returns the TX target address for Extended addressing, if configured.
+    pub fn tx_target_address(&self) -> Option<u8> {
+        match self.addressing {
+            AddressingMode::Normal => None,
+            AddressingMode::Extended {
+                tx_target_address, ..
+            } => Some(tx_target_address),
+        }
+    }
+
+    /// Returns the RX target address for Extended addressing, if configured.
+    pub fn rx_target_address(&self) -> Option<u8> {
+        match self.addressing {
+            AddressingMode::Normal => None,
+            AddressingMode::Extended {
+                rx_target_address, ..
+            } => Some(rx_target_address),
         }
     }
 }

@@ -374,7 +374,8 @@ fn test_receive_timeout() {
 fn test_receive_extended_addressing() {
     let mut cfg = default_config();
     cfg.addressing = AddressingMode::Extended {
-        target_address: 0xF1,
+        tx_target_address: 0xF1,
+        rx_target_address: 0xF1,
     };
 
     // SF with TA byte prefix: [0xF1, 0x03, 0xAA, 0xBB, 0xCC]

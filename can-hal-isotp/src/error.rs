@@ -1,8 +1,12 @@
 use std::fmt;
 
 /// Errors that can occur during ISO-TP communication.
+///
+/// The `Send + Sync + 'static` bounds on `E` match the [`CanError`](can_hal::error::CanError)
+/// trait bound, ensuring `IsoTpError` is safe to use across thread boundaries
+/// and with error-handling crates like `anyhow`.
 #[derive(Debug)]
-pub enum IsoTpError<E> {
+pub enum IsoTpError<E: Send + Sync + 'static> {
     /// Error from the underlying CAN channel.
     CanError(E),
     /// A timeout expired (N_Bs or N_Cr).
@@ -19,7 +23,7 @@ pub enum IsoTpError<E> {
     WaitLimitExceeded,
 }
 
-impl<E: fmt::Display> fmt::Display for IsoTpError<E> {
+impl<E: fmt::Display + Send + Sync + 'static> fmt::Display for IsoTpError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             IsoTpError::CanError(e) => write!(f, "CAN error: {}", e),
@@ -39,7 +43,7 @@ impl<E: fmt::Display> fmt::Display for IsoTpError<E> {
     }
 }
 
-impl<E: std::error::Error + 'static> std::error::Error for IsoTpError<E> {
+impl<E: std::error::Error + Send + Sync + 'static> std::error::Error for IsoTpError<E> {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             IsoTpError::CanError(e) => Some(e),

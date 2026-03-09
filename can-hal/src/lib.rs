@@ -31,7 +31,7 @@ pub mod async_channel;
 // Re-export core types at crate root for convenience.
 pub use bus::{BusState, BusStatus, ErrorCounters};
 pub use channel::{Receive, ReceiveFd, Transmit, TransmitFd};
-pub use driver::{ChannelBuilder, Driver};
+pub use driver::{ChannelBuilder, Driver, DriverFd};
 pub use error::CanError;
 pub use filter::{Filter, Filterable};
 pub use frame::{CanFdFrame, CanFrame, Frame, Timestamped};

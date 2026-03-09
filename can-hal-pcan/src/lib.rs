@@ -72,3 +72,9 @@ mod library;
 pub use channel::PcanChannel;
 pub use driver::{PcanBusType, PcanChannelBuilder, PcanDriver};
 pub use error::PcanError;
+
+// Compile-time assertion: channel must be Send so it can be moved across threads.
+const _: fn() = || {
+    fn assert_send<T: Send>() {}
+    assert_send::<PcanChannel>();
+};

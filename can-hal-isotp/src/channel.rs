@@ -36,7 +36,8 @@ where
         let overhead = self.config.overhead();
         let max_sf = 7 - overhead;
 
-        if data.len() > 0xFFFF_FFFF {
+        // ISO 15765-2 maximum: 4,294,967,295 bytes (32-bit length in long FF).
+        if data.len() as u64 > u32::MAX as u64 {
             return Err(IsoTpError::PayloadTooLarge);
         }
 
@@ -65,7 +66,7 @@ where
         let mut sn: u8 = 1;
 
         // Wait for Flow Control
-        let (mut fc_bs, st_min_dur) = self.wait_for_fc()?;
+        let (mut fc_bs, mut st_min_dur) = self.wait_for_fc()?;
         let mut block_count: u16 = 0;
 
         // Send Consecutive Frames
@@ -89,10 +90,13 @@ where
                     std::thread::sleep(st_min_dur);
                 }
 
-                // If block_size > 0, wait for FC every BS frames
+                // If block_size > 0, wait for FC every BS frames.
+                // The receiver may change BS and STmin in subsequent FC frames
+                // (ISO 15765-2), so we must honor the latest values.
                 if fc_bs > 0 && block_count >= fc_bs as u16 {
-                    let (new_bs, _new_st) = self.wait_for_fc()?;
+                    let (new_bs, new_st) = self.wait_for_fc()?;
                     fc_bs = new_bs;
+                    st_min_dur = new_st;
                     block_count = 0;
                 }
             }
@@ -332,21 +336,24 @@ where
         self.channel.transmit(&frame).map_err(IsoTpError::CanError)
     }
 
-    /// Write the target address byte for Extended addressing.
+    /// Write the TX target address byte for Extended addressing.
     fn write_ta(&self, buf: &mut [u8]) {
-        if let AddressingMode::Extended { target_address } = self.config.addressing {
-            buf[0] = target_address;
+        if let AddressingMode::Extended {
+            tx_target_address, ..
+        } = self.config.addressing
+        {
+            buf[0] = tx_target_address;
         }
     }
 
-    /// Check that the target address matches for Extended addressing.
+    /// Check that the RX target address matches for Extended addressing.
     /// For Normal addressing, always returns true.
     fn check_ta(&self, data: &[u8]) -> bool {
         match self.config.addressing {
             AddressingMode::Normal => true,
-            AddressingMode::Extended { target_address } => {
-                !data.is_empty() && data[0] == target_address
-            }
+            AddressingMode::Extended {
+                rx_target_address, ..
+            } => !data.is_empty() && data[0] == rx_target_address,
         }
     }
 }

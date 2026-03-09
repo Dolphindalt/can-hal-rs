@@ -1,4 +1,4 @@
-use crate::channel::{Receive, Transmit};
+use crate::channel::{Receive, ReceiveFd, Transmit, TransmitFd};
 use crate::error::CanError;
 
 /// Factory that opens channels on a CAN interface/device.
@@ -37,4 +37,14 @@ pub trait ChannelBuilder: Sized {
 
     /// Finalize configuration and go on-bus.
     fn connect(self) -> Result<Self::Channel, Self::Error>;
+}
+
+/// Extension of [`Driver`] for hardware that supports CAN FD.
+///
+/// The channel produced by a `DriverFd` additionally implements
+/// [`TransmitFd`] and [`ReceiveFd`], enabling generic FD-capable code.
+pub trait DriverFd: Driver
+where
+    Self::Channel: TransmitFd + ReceiveFd,
+{
 }

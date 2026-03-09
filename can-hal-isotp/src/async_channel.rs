@@ -34,7 +34,7 @@ where
         let overhead = self.config.overhead();
         let max_sf = 7 - overhead;
 
-        if data.len() > 0xFFFF_FFFF {
+        if data.len() as u64 > u32::MAX as u64 {
             return Err(IsoTpError::PayloadTooLarge);
         }
 
@@ -61,7 +61,7 @@ where
         let mut offset = ff_data_len;
         let mut sn: u8 = 1;
 
-        let (mut fc_bs, st_min_dur) = self.wait_for_fc().await?;
+        let (mut fc_bs, mut st_min_dur) = self.wait_for_fc().await?;
         let mut block_count: u16 = 0;
 
         while offset < data.len() {
@@ -84,8 +84,9 @@ where
                 }
 
                 if fc_bs > 0 && block_count >= fc_bs as u16 {
-                    let (new_bs, _new_st) = self.wait_for_fc().await?;
+                    let (new_bs, new_st) = self.wait_for_fc().await?;
                     fc_bs = new_bs;
+                    st_min_dur = new_st;
                     block_count = 0;
                 }
             }
@@ -315,17 +316,20 @@ where
     }
 
     fn write_ta(&self, buf: &mut [u8]) {
-        if let AddressingMode::Extended { target_address } = self.config.addressing {
-            buf[0] = target_address;
+        if let AddressingMode::Extended {
+            tx_target_address, ..
+        } = self.config.addressing
+        {
+            buf[0] = tx_target_address;
         }
     }
 
     fn check_ta(&self, data: &[u8]) -> bool {
         match self.config.addressing {
             AddressingMode::Normal => true,
-            AddressingMode::Extended { target_address } => {
-                !data.is_empty() && data[0] == target_address
-            }
+            AddressingMode::Extended {
+                rx_target_address, ..
+            } => !data.is_empty() && data[0] == rx_target_address,
         }
     }
 }

@@ -77,7 +77,7 @@ pub type FnWrite = unsafe extern "C" fn(
     flag: u32,
 ) -> CanStatus;
 
-pub type FnWriteSync = unsafe extern "C" fn(hnd: CanHandle, timeout: u64) -> CanStatus;
+pub type FnWriteSync = unsafe extern "C" fn(hnd: CanHandle, timeout: c_ulong) -> CanStatus;
 
 /// `canRead(CanHandle, long *id, void *msg, unsigned int *dlc, unsigned int *flag, unsigned long *time)`
 pub type FnRead = unsafe extern "C" fn(

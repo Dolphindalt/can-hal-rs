@@ -31,3 +31,9 @@ mod library;
 pub use channel::KvaserChannel;
 pub use driver::{KvaserChannelBuilder, KvaserDriver};
 pub use error::{KvaserError, KvaserStatus};
+
+// Compile-time assertion: channel must be Send so it can be moved across threads.
+const _: fn() = || {
+    fn assert_send<T: Send>() {}
+    assert_send::<KvaserChannel>();
+};
