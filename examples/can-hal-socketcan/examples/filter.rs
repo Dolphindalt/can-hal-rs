@@ -56,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!(
                     "RX: ID=0x{:03X} DLC={} data=[{}] ({elapsed:.1?} ago)",
                     frame.id().raw(),
-                    frame.dlc(),
+                    frame.len(),
                     frame
                         .data()
                         .iter()

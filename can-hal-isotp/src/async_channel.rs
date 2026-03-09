@@ -219,7 +219,9 @@ where
                     }
                 }
                 _ => {
-                    return Err(IsoTpError::InvalidFrame);
+                    // Per ISO 15765-2, unexpected PCI types during
+                    // CF reassembly are silently ignored.
+                    continue;
                 }
             }
         }

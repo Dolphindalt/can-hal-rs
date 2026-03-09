@@ -86,15 +86,17 @@ impl Receive for SocketCanChannel {
 
     fn try_receive(&mut self) -> Result<Option<Timestamped<CanFrame>>, Self::Error> {
         self.ensure_nonblocking()?;
-        match self.socket.read_frame() {
-            Ok(CanAnyFrame::Normal(data_frame)) => {
-                let now = Instant::now();
-                let frame = convert::from_socketcan_data_frame(&data_frame)?;
-                Ok(Some(Timestamped::new(frame, now)))
+        loop {
+            match self.socket.read_frame() {
+                Ok(CanAnyFrame::Normal(data_frame)) => {
+                    let now = Instant::now();
+                    let frame = convert::from_socketcan_data_frame(&data_frame)?;
+                    return Ok(Some(Timestamped::new(frame, now)));
+                }
+                Ok(_) => continue, // skip FD/remote/error frames, drain queue
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(None),
+                Err(e) => return Err(SocketCanError::Io(e)),
             }
-            Ok(_) => Ok(None),
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(None),
-            Err(e) => Err(SocketCanError::Io(e)),
         }
     }
 

@@ -7,6 +7,14 @@ use can_hal::{
     ReceiveFd, Timestamped, Transmit, TransmitFd,
 };
 
+/// Maximum poll interval for the event fd.
+///
+/// The mhydra (linuxcan) driver uses edge-triggered event semantics: the event fd
+/// becomes readable when new frames arrive, but may not re-signal if frames arrive
+/// between `read_frame()` returning `None` and `poll()` starting. By capping the
+/// poll timeout we guarantee periodic queue drains regardless of event fd state.
+const MAX_POLL_INTERVAL: Duration = Duration::from_millis(50);
+
 use crate::convert::{from_canlib_frame, to_canlib_id};
 use crate::error::{check_status, KvaserError};
 use crate::event::ReceiveEvent;
@@ -77,7 +85,7 @@ impl Transmit for KvaserChannel {
                 self.handle,
                 id as c_long,
                 frame.data().as_ptr().cast(),
-                frame.dlc() as u32,
+                frame.len() as u32,
                 flags,
             )
         })?;
@@ -99,8 +107,8 @@ impl Receive for KvaserChannel {
                 Some(Frame::Can(f)) => return Ok(Timestamped::new(f, Instant::now())),
                 Some(Frame::Fd(_)) => {} // FD frame on classic receive — skip and retry
                 None => {
-                    // Queue empty; block until the driver signals a new frame.
-                    self.event.wait(None)?;
+                    // Bounded wait: see MAX_POLL_INTERVAL doc for rationale.
+                    let _ = self.event.wait(Some(MAX_POLL_INTERVAL))?;
                 }
             }
         }
@@ -122,18 +130,23 @@ impl Receive for KvaserChannel {
     ) -> Result<Option<Timestamped<CanFrame>>, KvaserError> {
         let deadline = Instant::now() + timeout;
         loop {
-            match self.read_frame()? {
-                Some(Frame::Can(f)) => return Ok(Some(Timestamped::new(f, Instant::now()))),
-                Some(Frame::Fd(_)) => {} // skip FD frames and re-check deadline
-                None => {}
+            // Drain the queue before waiting on the event. If we hit an FD frame,
+            // keep reading — there may be a classic frame queued behind it. Only
+            // block on the event when the queue is truly empty.
+            loop {
+                match self.read_frame()? {
+                    Some(Frame::Can(f)) => return Ok(Some(Timestamped::new(f, Instant::now()))),
+                    Some(Frame::Fd(_)) => continue, // skip FD frames, drain queue
+                    None => break,                  // queue empty, need to wait
+                }
             }
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 return Ok(None);
             }
-            if !self.event.wait(Some(remaining))? {
-                return Ok(None);
-            }
+            // Bounded wait: see MAX_POLL_INTERVAL doc for rationale.
+            let poll_timeout = remaining.min(MAX_POLL_INTERVAL);
+            let _ = self.event.wait(Some(poll_timeout))?;
         }
     }
 }
@@ -164,7 +177,7 @@ impl TransmitFd for KvaserChannel {
                 self.handle,
                 id as c_long,
                 frame.data().as_ptr().cast(),
-                frame.dlc() as u32,
+                frame.len() as u32,
                 flags,
             )
         })?;
@@ -189,7 +202,8 @@ impl ReceiveFd for KvaserChannel {
             match self.read_frame()? {
                 Some(frame) => return Ok(Timestamped::new(frame, Instant::now())),
                 None => {
-                    self.event.wait(None)?;
+                    // Bounded wait: see MAX_POLL_INTERVAL doc for rationale.
+                    let _ = self.event.wait(Some(MAX_POLL_INTERVAL))?;
                 }
             }
         }
@@ -225,9 +239,9 @@ impl ReceiveFd for KvaserChannel {
             if remaining.is_zero() {
                 return Ok(None);
             }
-            if !self.event.wait(Some(remaining))? {
-                return Ok(None);
-            }
+            // Bounded wait: see MAX_POLL_INTERVAL doc for rationale.
+            let poll_timeout = remaining.min(MAX_POLL_INTERVAL);
+            let _ = self.event.wait(Some(poll_timeout))?;
         }
     }
 }

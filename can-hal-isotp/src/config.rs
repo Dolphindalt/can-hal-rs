@@ -63,17 +63,21 @@ pub struct IsoTpConfig {
 impl IsoTpConfig {
     /// Create a new `IsoTpConfig` with sensible defaults.
     ///
-    /// Defaults: Normal addressing, block_size=0, st_min=0, timeout=1s,
-    /// padding=None, max_fc_wait=10.
+    /// Defaults: Normal addressing, block_size=0, st_min=5 (5 ms),
+    /// timeout=1s, padding=Some(0xCC), max_fc_wait=10.
+    ///
+    /// The default `st_min` of 5 ms provides reliable inter-frame pacing
+    /// across different CAN adapters. Set to 0 only if both endpoints are
+    /// known to handle back-to-back frames at full bus speed.
     pub fn new(tx_id: CanId, rx_id: CanId) -> Self {
         IsoTpConfig {
             tx_id,
             rx_id,
             addressing: AddressingMode::Normal,
             block_size: 0,
-            st_min: 0,
+            st_min: 5,
             timeout: Duration::from_millis(1000),
-            padding: None,
+            padding: Some(0xCC),
             max_fc_wait: 10,
             functional_id: None,
         }
@@ -81,19 +85,9 @@ impl IsoTpConfig {
 
     /// Interpret the raw `st_min` byte as a `Duration`.
     ///
-    /// - 0x00..=0x7F: value in milliseconds
-    /// - 0xF1..=0xF9: 100..900 microseconds (rounded up to 1ms in practice)
-    /// - All other values (0x80..=0xF0, 0xFA..=0xFF): treated as 0
+    /// See [`crate::frame::interpret_st_min`] for the encoding rules.
     pub fn st_min_duration(&self) -> Duration {
-        match self.st_min {
-            0x00..=0x7F => Duration::from_millis(self.st_min as u64),
-            0xF1..=0xF9 => {
-                let us = (self.st_min - 0xF0) as u64 * 100;
-                // Round up to 1ms minimum since std::thread::sleep granularity is ~1ms
-                Duration::from_micros(us).max(Duration::from_millis(1))
-            }
-            _ => Duration::ZERO,
-        }
+        crate::frame::interpret_st_min(self.st_min)
     }
 
     /// Returns the number of overhead bytes for the current addressing mode.

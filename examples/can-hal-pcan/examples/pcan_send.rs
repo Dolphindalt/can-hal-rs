@@ -1,6 +1,6 @@
 // Hardware requirements:
 //   - PCAN USB adapter (e.g. PCAN-USB, PCAN-USB FD, PCAN-USB Pro)
-//   - A second CAN adapter connected and sending frames
+//   - A second CAN adapter connected to the PCAN adapter to provide bus ACK
 //   - Both adapters must be configured for the same bitrate (default: 500 kbit/s)
 //
 // Software requirements:
@@ -10,15 +10,16 @@
 //     Install from: https://www.peak-system.com/PCAN-Basic.239.0.html
 //
 // Usage:
-//   cargo run --example receive
-//   cargo run --example receive -- <channel_index>
+//   cargo run --example send
+//   cargo run --example send -- <channel_index>
 //
 //   channel_index: 0-based USB channel index (default: 0 = PCAN_USBBUS1)
 
 use std::env;
+use std::thread;
 use std::time::Duration;
 
-use can_hal::{ChannelBuilder, Driver, Receive};
+use can_hal::{CanFrame, CanId, ChannelBuilder, Driver, Transmit};
 use can_hal_pcan::PcanDriver;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -29,19 +30,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let driver = PcanDriver::new()?;
     let mut channel = driver.channel(channel_index)?.bitrate(500_000)?.connect()?;
 
-    println!("Channel opened at 500 kbit/s. Waiting for frames...");
+    println!("Channel opened at 500 kbit/s. Sending frames...");
     println!("Press Ctrl+C to stop.\n");
 
-    loop {
-        match channel.receive_timeout(Duration::from_secs(1))? {
-            Some(timestamped) => {
-                let frame = timestamped.frame();
-                let elapsed = timestamped.timestamp().elapsed();
+    let id = CanId::new_standard(0x100).expect("valid standard ID");
+    let mut counter: u8 = 0;
 
+    loop {
+        let data = [counter, !counter, 0xCA, 0xFE, 0x00, 0x00, 0x00, counter];
+        let frame = CanFrame::new(id, &data).expect("valid frame");
+
+        match channel.transmit(&frame) {
+            Ok(()) => {
                 println!(
-                    "RX: ID=0x{:03X} DLC={} data=[{}] ({elapsed:.1?} ago)",
+                    "TX: ID=0x{:03X} DLC={} data=[{}]",
                     frame.id().raw(),
-                    frame.dlc(),
+                    frame.len(),
                     frame
                         .data()
                         .iter()
@@ -50,9 +54,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .join(" "),
                 );
             }
-            None => {
-                // Timeout, no frame received — keep waiting
+            Err(e) => {
+                eprintln!("TX error: {e}");
             }
         }
+
+        counter = counter.wrapping_add(1);
+        thread::sleep(Duration::from_secs(1));
     }
 }

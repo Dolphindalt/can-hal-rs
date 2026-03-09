@@ -27,6 +27,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - uses: Swatinem/rust-cache@v2
       - run: cargo clippy -p can-hal -p can-hal-isotp --all-targets --features async -- -D warnings
 
   test:
@@ -35,6 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - run: cargo test -p can-hal -p can-hal-isotp --features async
 
   build-check:
@@ -43,6 +45,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       # can-hal-socketcan depends on the `socketcan` crate which builds
       # against Linux headers available on ubuntu-latest.
       # can-hal-pcan and can-hal-kvaser require proprietary vendor drivers

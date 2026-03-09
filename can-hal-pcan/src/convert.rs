@@ -45,11 +45,11 @@ pub(crate) fn from_pcan_id(raw_id: u32, msg_type: u8) -> Result<CanId, PcanError
 pub(crate) fn to_pcan_msg(frame: &CanFrame) -> TPCANMsg {
     let (id, msg_type) = to_pcan_id(frame.id());
     let mut data = [0u8; 8];
-    data[..frame.dlc() as usize].copy_from_slice(frame.data());
+    data[..frame.len()].copy_from_slice(frame.data());
     TPCANMsg {
         id,
         msg_type,
-        len: frame.dlc(),
+        len: frame.len() as u8,
         data,
     }
 }
@@ -81,11 +81,11 @@ pub(crate) fn to_pcan_msg_fd(frame: &CanFdFrame) -> TPCANMsgFD {
         msg_type |= PCAN_MESSAGE_ESI;
     }
     let mut data = [0u8; 64];
-    data[..frame.dlc() as usize].copy_from_slice(frame.data());
+    data[..frame.len()].copy_from_slice(frame.data());
     TPCANMsgFD {
         id,
         msg_type,
-        dlc: dlc_bytes_to_code(frame.dlc()),
+        dlc: dlc_bytes_to_code(frame.len() as u8),
         data,
     }
 }
@@ -210,8 +210,8 @@ mod tests {
         let msg = to_pcan_msg(&frame);
         let back = from_pcan_msg(&msg).unwrap().unwrap();
         assert_eq!(frame.id(), back.id());
-        assert_eq!(frame.dlc(), back.dlc());
-        assert_eq!(0, back.dlc());
+        assert_eq!(frame.len(), back.len());
+        assert_eq!(0, back.len());
     }
 
     #[test]
@@ -272,7 +272,7 @@ mod tests {
         let frame = from_pcan_msg_fd(&msg).unwrap().unwrap();
         match frame {
             Frame::Can(cf) => {
-                assert_eq!(cf.dlc(), 3);
+                assert_eq!(cf.len(), 3);
                 assert_eq!(cf.data(), &[0xAA, 0xBB, 0xCC]);
             }
             Frame::Fd(_) => panic!("expected classic frame"),

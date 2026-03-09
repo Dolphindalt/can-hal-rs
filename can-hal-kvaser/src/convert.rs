@@ -113,7 +113,7 @@ mod tests {
             .unwrap();
         match frame {
             Frame::Fd(f) => {
-                assert_eq!(f.dlc(), 12);
+                assert_eq!(f.len(), 12);
                 assert!(f.brs());
                 assert!(!f.esi());
             }

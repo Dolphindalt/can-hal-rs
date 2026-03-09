@@ -4,13 +4,16 @@ version = "0.1.0"
 edition = "2021"
 description = "ISO-TP (ISO 15765-2) transport layer for can-hal"
 license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/Dolphindalt/can-hal-rs"
 keywords = ["can", "isotp", "automotive", "uds"]
+categories = ["hardware-support"]
 
 [features]
 async = ["can-hal/async", "dep:tokio"]
 
 [dependencies]
-can-hal = { path = "../can-hal" }
+can-hal = { version = "0.1.0", path = "../can-hal" }
 tokio = { version = "1", features = ["time"], optional = true }
 
 [dev-dependencies]

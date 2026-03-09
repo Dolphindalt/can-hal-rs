@@ -8,10 +8,10 @@ publish = false
 name = "loopback"
 
 [[example]]
-name = "send"
+name = "isotp_send"
 
 [[example]]
-name = "receive"
+name = "isotp_receive"
 
 [[example]]
 name = "kernel_interop"
@@ -25,9 +25,14 @@ name = "functional_addressing"
 [[example]]
 name = "loopback_fd"
 
+[[example]]
+name = "cross_adapter"
+
 [dependencies]
 can-hal-isotp = { path = "../../can-hal-isotp" }
 can-hal-socketcan = { path = "../../can-hal-socketcan" }
+can-hal-pcan = { path = "../../can-hal-pcan" }
+can-hal-kvaser = { path = "../../can-hal-kvaser" }
 can-hal = { path = "../../can-hal" }
 
 [dev-dependencies]

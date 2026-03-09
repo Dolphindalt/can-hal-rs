@@ -1,33 +1,33 @@
 // Hardware requirements:
-//   - PCAN USB adapter (e.g. PCAN-USB, PCAN-USB FD, PCAN-USB Pro)
-//   - A second CAN adapter connected to the PCAN adapter to provide bus ACK
+//   - KVASER USB adapter (e.g. Leaf Light, Leaf Pro FD, USBcan)
+//   - A second CAN adapter connected to the KVASER adapter to provide bus ACK
 //   - Both adapters must be configured for the same bitrate (default: 500 kbit/s)
 //
 // Software requirements:
-//   - Linux: PCAN driver (peak-linux-driver) and libpcanbasic.so installed
-//     Install from: https://www.peak-system.com/fileadmin/media/linux/
-//   - Windows: PCAN-Basic API (PCANBasic.dll) installed
-//     Install from: https://www.peak-system.com/PCAN-Basic.239.0.html
+//   - Linux: KVASER Linux drivers and libcanlib.so installed
+//     Install from: https://www.kvaser.com/downloads-kvaser/
+//   - Windows: CANlib SDK installed (canlib32.dll in system PATH)
+//     Install from: https://www.kvaser.com/downloads-kvaser/
 //
 // Usage:
 //   cargo run --example send
 //   cargo run --example send -- <channel_index>
 //
-//   channel_index: 0-based USB channel index (default: 0 = PCAN_USBBUS1)
+//   channel_index: 0-based channel index (default: 0)
 
 use std::env;
 use std::thread;
 use std::time::Duration;
 
 use can_hal::{CanFrame, CanId, ChannelBuilder, Driver, Transmit};
-use can_hal_pcan::PcanDriver;
+use can_hal_kvaser::KvaserDriver;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let channel_index: u32 = env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(0);
 
-    println!("Opening PCAN USB channel {channel_index}...");
+    println!("Opening KVASER channel {channel_index}...");
 
-    let driver = PcanDriver::new()?;
+    let driver = KvaserDriver::new()?;
     let mut channel = driver.channel(channel_index)?.bitrate(500_000)?.connect()?;
 
     println!("Channel opened at 500 kbit/s. Sending frames...");
@@ -45,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!(
                     "TX: ID=0x{:03X} DLC={} data=[{}]",
                     frame.id().raw(),
-                    frame.dlc(),
+                    frame.len(),
                     frame
                         .data()
                         .iter()

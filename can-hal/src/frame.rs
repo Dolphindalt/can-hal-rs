@@ -2,17 +2,17 @@ use std::time::Instant;
 
 use crate::id::CanId;
 
-const CAN_MAX_DLC: u8 = 8;
-const CAN_FD_MAX_DLC: u8 = 64;
+const CAN_MAX_LEN: usize = 8;
+const CAN_FD_MAX_LEN: usize = 64;
 
 /// Valid CAN FD data lengths (bytes).
-const FD_DLC_VALUES: &[u8] = &[0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64];
+const FD_VALID_LENS: &[usize] = &[0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64];
 
 /// A classic CAN 2.0 frame (up to 8 data bytes).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanFrame {
     id: CanId,
-    dlc: u8,
+    len: u8,
     data: [u8; 8],
 }
 
@@ -21,13 +21,16 @@ impl CanFrame {
     ///
     /// Returns `None` if `data` is longer than 8 bytes.
     pub fn new(id: CanId, data: &[u8]) -> Option<Self> {
-        if data.len() > CAN_MAX_DLC as usize {
+        if data.len() > CAN_MAX_LEN {
             return None;
         }
-        let dlc = data.len() as u8;
         let mut buf = [0u8; 8];
         buf[..data.len()].copy_from_slice(data);
-        Some(CanFrame { id, dlc, data: buf })
+        Some(CanFrame {
+            id,
+            len: data.len() as u8,
+            data: buf,
+        })
     }
 
     /// Returns the frame's CAN identifier.
@@ -35,22 +38,35 @@ impl CanFrame {
         self.id
     }
 
-    /// Returns the data length code.
-    pub fn dlc(&self) -> u8 {
-        self.dlc
+    /// Returns the data length in bytes (0--8).
+    ///
+    /// For classic CAN 2.0, the data length and the on-wire DLC field are
+    /// identical in the range 0--8.
+    pub fn len(&self) -> usize {
+        self.len as usize
     }
 
-    /// Returns the data payload (slice of length `dlc`).
+    /// Returns `true` if the frame carries zero data bytes.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Returns the data payload.
     pub fn data(&self) -> &[u8] {
-        &self.data[..self.dlc as usize]
+        &self.data[..self.len as usize]
     }
 }
 
 /// A CAN FD frame (up to 64 data bytes).
+///
+/// The data length is stored as a byte count (0--64), **not** the 4-bit
+/// on-wire DLC code. For DLC values 9--15 the CAN FD specification maps
+/// them to 12, 16, 20, 24, 32, 48, and 64 bytes respectively; this struct
+/// stores the decoded byte count directly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanFdFrame {
     id: CanId,
-    dlc: u8,
+    len: u8,
     data: [u8; 64],
     brs: bool,
     esi: bool,
@@ -59,18 +75,17 @@ pub struct CanFdFrame {
 impl CanFdFrame {
     /// Create a new CAN FD frame.
     ///
-    /// Returns `None` if `data.len()` is not a valid FD DLC value
+    /// Returns `None` if `data.len()` is not a valid FD data length
     /// (0, 1, ..., 8, 12, 16, 20, 24, 32, 48, or 64).
     pub fn new(id: CanId, data: &[u8], brs: bool, esi: bool) -> Option<Self> {
-        let len = data.len() as u8;
-        if len > CAN_FD_MAX_DLC || !FD_DLC_VALUES.contains(&len) {
+        if data.len() > CAN_FD_MAX_LEN || !FD_VALID_LENS.contains(&data.len()) {
             return None;
         }
         let mut buf = [0u8; 64];
         buf[..data.len()].copy_from_slice(data);
         Some(CanFdFrame {
             id,
-            dlc: len,
+            len: data.len() as u8,
             data: buf,
             brs,
             esi,
@@ -82,14 +97,22 @@ impl CanFdFrame {
         self.id
     }
 
-    /// Returns the data length code.
-    pub fn dlc(&self) -> u8 {
-        self.dlc
+    /// Returns the data length in bytes (not the 4-bit DLC code).
+    ///
+    /// The returned value is always one of the valid CAN FD data lengths:
+    /// 0, 1, ..., 8, 12, 16, 20, 24, 32, 48, or 64.
+    pub fn len(&self) -> usize {
+        self.len as usize
     }
 
-    /// Returns the data payload (slice of length `dlc`).
+    /// Returns `true` if the frame carries zero data bytes.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Returns the data payload.
     pub fn data(&self) -> &[u8] {
-        &self.data[..self.dlc as usize]
+        &self.data[..self.len as usize]
     }
 
     /// Returns `true` if the Bit Rate Switch flag is set.
@@ -127,11 +150,19 @@ impl Frame {
         }
     }
 
-    /// Returns the data length code regardless of frame type.
-    pub fn dlc(&self) -> u8 {
+    /// Returns the data length in bytes regardless of frame type.
+    pub fn len(&self) -> usize {
         match self {
-            Frame::Can(f) => f.dlc(),
-            Frame::Fd(f) => f.dlc(),
+            Frame::Can(f) => f.len(),
+            Frame::Fd(f) => f.len(),
+        }
+    }
+
+    /// Returns `true` if the frame carries zero data bytes.
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Frame::Can(f) => f.is_empty(),
+            Frame::Fd(f) => f.is_empty(),
         }
     }
 }

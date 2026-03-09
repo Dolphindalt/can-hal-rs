@@ -44,6 +44,8 @@ version = "0.1.0"
 dependencies = [
  "can-hal",
  "can-hal-isotp",
+ "can-hal-kvaser",
+ "can-hal-pcan",
  "can-hal-socketcan",
  "libc",
 ]

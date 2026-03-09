@@ -195,7 +195,7 @@ mod tests {
         let id = CanId::new_standard(0x100).unwrap();
         let frame = CanFrame::new(id, &[1, 2, 3]).unwrap();
         assert_eq!(frame.id(), id);
-        assert_eq!(frame.dlc(), 3);
+        assert_eq!(frame.len(), 3);
         assert_eq!(frame.data(), &[1, 2, 3]);
     }
 
@@ -203,7 +203,7 @@ mod tests {
     fn can_frame_empty() {
         let id = CanId::new_standard(0x000).unwrap();
         let frame = CanFrame::new(id, &[]).unwrap();
-        assert_eq!(frame.dlc(), 0);
+        assert_eq!(frame.len(), 0);
         assert_eq!(frame.data(), &[]);
     }
 
@@ -218,7 +218,7 @@ mod tests {
         let id = CanId::new_extended(0x100).unwrap();
         let data = [0xAA; 32];
         let frame = CanFdFrame::new(id, &data, true, false).unwrap();
-        assert_eq!(frame.dlc(), 32);
+        assert_eq!(frame.len(), 32);
         assert_eq!(frame.data(), &data);
         assert!(frame.brs());
         assert!(!frame.esi());
@@ -237,7 +237,7 @@ mod tests {
         let classic = CanFrame::new(id, &[0xFF]).unwrap();
         let frame = Frame::Can(classic);
         assert_eq!(frame.id(), id);
-        assert_eq!(frame.dlc(), 1);
+        assert_eq!(frame.len(), 1);
         assert_eq!(frame.data(), &[0xFF]);
     }
 
