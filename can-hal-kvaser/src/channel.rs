@@ -100,8 +100,9 @@ impl Transmit for KvaserChannel {
 
 impl Receive for KvaserChannel {
     type Error = KvaserError;
+    type Timestamp = Instant;
 
-    fn receive(&mut self) -> Result<Timestamped<CanFrame>, KvaserError> {
+    fn receive(&mut self) -> Result<Timestamped<CanFrame, Instant>, KvaserError> {
         loop {
             match self.read_frame()? {
                 Some(Frame::Can(f)) => return Ok(Timestamped::new(f, Instant::now())),
@@ -114,7 +115,7 @@ impl Receive for KvaserChannel {
         }
     }
 
-    fn try_receive(&mut self) -> Result<Option<Timestamped<CanFrame>>, KvaserError> {
+    fn try_receive(&mut self) -> Result<Option<Timestamped<CanFrame, Instant>>, KvaserError> {
         loop {
             match self.read_frame()? {
                 Some(Frame::Can(f)) => return Ok(Some(Timestamped::new(f, Instant::now()))),
@@ -127,7 +128,7 @@ impl Receive for KvaserChannel {
     fn receive_timeout(
         &mut self,
         timeout: Duration,
-    ) -> Result<Option<Timestamped<CanFrame>>, KvaserError> {
+    ) -> Result<Option<Timestamped<CanFrame, Instant>>, KvaserError> {
         let deadline = Instant::now() + timeout;
         loop {
             // Drain the queue before waiting on the event. If we hit an FD frame,
@@ -191,8 +192,9 @@ impl TransmitFd for KvaserChannel {
 
 impl ReceiveFd for KvaserChannel {
     type Error = KvaserError;
+    type Timestamp = Instant;
 
-    fn receive_fd(&mut self) -> Result<Timestamped<Frame>, KvaserError> {
+    fn receive_fd(&mut self) -> Result<Timestamped<Frame, Instant>, KvaserError> {
         if !self.fd_mode {
             return Err(KvaserError::NotSupported(
                 "channel was not opened in FD mode; call data_bitrate() before connect()".into(),
@@ -209,7 +211,7 @@ impl ReceiveFd for KvaserChannel {
         }
     }
 
-    fn try_receive_fd(&mut self) -> Result<Option<Timestamped<Frame>>, KvaserError> {
+    fn try_receive_fd(&mut self) -> Result<Option<Timestamped<Frame, Instant>>, KvaserError> {
         if !self.fd_mode {
             return Err(KvaserError::NotSupported(
                 "channel was not opened in FD mode; call data_bitrate() before connect()".into(),
@@ -224,7 +226,7 @@ impl ReceiveFd for KvaserChannel {
     fn receive_fd_timeout(
         &mut self,
         timeout: Duration,
-    ) -> Result<Option<Timestamped<Frame>>, KvaserError> {
+    ) -> Result<Option<Timestamped<Frame, Instant>>, KvaserError> {
         if !self.fd_mode {
             return Err(KvaserError::NotSupported(
                 "channel was not opened in FD mode; call data_bitrate() before connect()".into(),

@@ -1,15 +1,18 @@
 [package]
 name = "can-hal"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
+rust-version = "1.81"
 description = "Hardware-agnostic traits for CAN bus communication"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/Dolphindalt/can-hal-rs"
 keywords = ["can", "can-bus", "hal", "canfd", "automotive"]
-categories = ["hardware-support", "embedded"]
+categories = ["hardware-support", "embedded", "no-std"]
 
 [features]
+default = ["std"]
+std = []
 async = []
 
 [dependencies]

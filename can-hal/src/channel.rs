@@ -1,4 +1,4 @@
-use std::time::Duration;
+use core::time::Duration;
 
 use crate::error::CanError;
 use crate::frame::{CanFdFrame, CanFrame, Frame, Timestamped};
@@ -14,19 +14,23 @@ pub trait Transmit {
 /// Receive classic CAN frames.
 pub trait Receive {
     type Error: CanError;
+    /// The timestamp type used by this backend (e.g., `std::time::Instant`).
+    type Timestamp: Clone;
 
     /// Blocks until a classic CAN frame is available.
-    fn receive(&mut self) -> Result<Timestamped<CanFrame>, Self::Error>;
+    fn receive(&mut self) -> Result<Timestamped<CanFrame, Self::Timestamp>, Self::Error>;
 
     /// Returns immediately with `Ok(None)` if no frame is available.
-    fn try_receive(&mut self) -> Result<Option<Timestamped<CanFrame>>, Self::Error>;
+    fn try_receive(
+        &mut self,
+    ) -> Result<Option<Timestamped<CanFrame, Self::Timestamp>>, Self::Error>;
 
     /// Blocks until a frame is available or the timeout expires.
     /// Returns `Ok(None)` on timeout.
     fn receive_timeout(
         &mut self,
         timeout: Duration,
-    ) -> Result<Option<Timestamped<CanFrame>>, Self::Error>;
+    ) -> Result<Option<Timestamped<CanFrame, Self::Timestamp>>, Self::Error>;
 }
 
 /// Transmit CAN FD frames.
@@ -40,17 +44,21 @@ pub trait TransmitFd {
 /// Receive any frame (classic or FD) from an FD-capable bus.
 pub trait ReceiveFd {
     type Error: CanError;
+    /// The timestamp type used by this backend (e.g., `std::time::Instant`).
+    type Timestamp: Clone;
 
     /// Blocks until any frame is available; returns `Frame` enum.
-    fn receive_fd(&mut self) -> Result<Timestamped<Frame>, Self::Error>;
+    fn receive_fd(&mut self) -> Result<Timestamped<Frame, Self::Timestamp>, Self::Error>;
 
     /// Non-blocking variant.
-    fn try_receive_fd(&mut self) -> Result<Option<Timestamped<Frame>>, Self::Error>;
+    fn try_receive_fd(
+        &mut self,
+    ) -> Result<Option<Timestamped<Frame, Self::Timestamp>>, Self::Error>;
 
     /// Blocks until a frame is available or the timeout expires.
     /// Returns `Ok(None)` on timeout.
     fn receive_fd_timeout(
         &mut self,
         timeout: Duration,
-    ) -> Result<Option<Timestamped<Frame>>, Self::Error>;
+    ) -> Result<Option<Timestamped<Frame, Self::Timestamp>>, Self::Error>;
 }

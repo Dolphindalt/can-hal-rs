@@ -17,11 +17,13 @@ pub trait AsyncTransmit {
 /// Async receive of classic CAN frames.
 pub trait AsyncReceive {
     type Error: CanError;
+    /// The timestamp type used by this backend.
+    type Timestamp: Clone + Send;
 
     /// Asynchronously receive a classic CAN frame.
     fn receive(
         &mut self,
-    ) -> impl Future<Output = Result<Timestamped<CanFrame>, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<Timestamped<CanFrame, Self::Timestamp>, Self::Error>> + Send;
 }
 
 /// Async transmit of CAN FD frames.
@@ -38,9 +40,11 @@ pub trait AsyncTransmitFd {
 /// Async receive of any frame (classic or FD).
 pub trait AsyncReceiveFd {
     type Error: CanError;
+    /// The timestamp type used by this backend.
+    type Timestamp: Clone + Send;
 
     /// Asynchronously receive any frame.
     fn receive_fd(
         &mut self,
-    ) -> impl Future<Output = Result<Timestamped<Frame>, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<Timestamped<Frame, Self::Timestamp>, Self::Error>> + Send;
 }

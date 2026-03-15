@@ -6,6 +6,17 @@
 //! (SocketCAN, PCAN, Kvaser, etc.) implement so that application code can be
 //! written once and run on any supported hardware.
 //!
+//! ## `no_std` support
+//!
+//! This crate is `no_std`-compatible. The `std` feature (enabled by default)
+//! is not required for any of the trait definitions or frame types. Disable
+//! default features to use in embedded / `no_std` contexts:
+//!
+//! ```toml
+//! [dependencies]
+//! can-hal = { version = "0.2", default-features = false }
+//! ```
+//!
 //! ## Quick start
 //!
 //! ```rust
@@ -16,6 +27,11 @@
 //! assert_eq!(frame.id(), id);
 //! assert_eq!(frame.data(), &[0xDE, 0xAD]);
 //! ```
+
+#![no_std]
+
+#[cfg(feature = "std")]
+extern crate std;
 
 pub mod bus;
 pub mod channel;
@@ -40,12 +56,14 @@ pub use id::CanId;
 #[cfg(feature = "async")]
 pub use async_channel::{AsyncReceive, AsyncReceiveFd, AsyncTransmit, AsyncTransmitFd};
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
     use std::collections::VecDeque;
     use std::fmt;
+    use std::string::String;
     use std::time::{Duration, Instant};
+    use std::vec::Vec;
 
     // -- Mock error type --
 
@@ -91,15 +109,16 @@ mod tests {
 
     impl Receive for MockChannel {
         type Error = MockError;
+        type Timestamp = Instant;
 
-        fn receive(&mut self) -> Result<Timestamped<CanFrame>, Self::Error> {
+        fn receive(&mut self) -> Result<Timestamped<CanFrame, Instant>, Self::Error> {
             self.rx_queue
                 .pop_front()
                 .map(|f| Timestamped::new(f, Instant::now()))
                 .ok_or_else(|| MockError("no frames available".into()))
         }
 
-        fn try_receive(&mut self) -> Result<Option<Timestamped<CanFrame>>, Self::Error> {
+        fn try_receive(&mut self) -> Result<Option<Timestamped<CanFrame, Instant>>, Self::Error> {
             Ok(self
                 .rx_queue
                 .pop_front()
@@ -109,7 +128,7 @@ mod tests {
         fn receive_timeout(
             &mut self,
             _timeout: Duration,
-        ) -> Result<Option<Timestamped<CanFrame>>, Self::Error> {
+        ) -> Result<Option<Timestamped<CanFrame, Instant>>, Self::Error> {
             // Mock: just return immediately like try_receive.
             self.try_receive()
         }
@@ -248,7 +267,7 @@ mod tests {
         let now = Instant::now();
         let ts = Timestamped::new(frame.clone(), now);
         assert_eq!(ts.frame(), &frame);
-        assert_eq!(ts.timestamp(), now);
+        assert_eq!(*ts.timestamp(), now);
         assert_eq!(ts.into_frame(), frame);
     }
 
@@ -330,7 +349,6 @@ mod tests {
 
     #[test]
     fn bus_state_enum() {
-        // Verify the types exist and are usable.
         let state = BusState::ErrorActive;
         assert_eq!(state, BusState::ErrorActive);
         assert_ne!(state, BusState::BusOff);

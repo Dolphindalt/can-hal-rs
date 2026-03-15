@@ -70,8 +70,9 @@ impl Transmit for SocketCanChannel {
 
 impl Receive for SocketCanChannel {
     type Error = SocketCanError;
+    type Timestamp = Instant;
 
-    fn receive(&mut self) -> Result<Timestamped<CanFrame>, Self::Error> {
+    fn receive(&mut self) -> Result<Timestamped<CanFrame, Instant>, Self::Error> {
         self.ensure_blocking()?;
         loop {
             let any_frame = self.socket.read_frame()?;
@@ -84,7 +85,7 @@ impl Receive for SocketCanChannel {
         }
     }
 
-    fn try_receive(&mut self) -> Result<Option<Timestamped<CanFrame>>, Self::Error> {
+    fn try_receive(&mut self) -> Result<Option<Timestamped<CanFrame, Instant>>, Self::Error> {
         self.ensure_nonblocking()?;
         loop {
             match self.socket.read_frame() {
@@ -103,7 +104,7 @@ impl Receive for SocketCanChannel {
     fn receive_timeout(
         &mut self,
         timeout: Duration,
-    ) -> Result<Option<Timestamped<CanFrame>>, Self::Error> {
+    ) -> Result<Option<Timestamped<CanFrame, Instant>>, Self::Error> {
         self.ensure_blocking()?;
         self.socket.set_read_timeout(timeout)?;
         let deadline = Instant::now() + timeout;
@@ -150,8 +151,9 @@ impl TransmitFd for SocketCanChannel {
 
 impl ReceiveFd for SocketCanChannel {
     type Error = SocketCanError;
+    type Timestamp = Instant;
 
-    fn receive_fd(&mut self) -> Result<Timestamped<Frame>, Self::Error> {
+    fn receive_fd(&mut self) -> Result<Timestamped<Frame, Instant>, Self::Error> {
         self.ensure_blocking()?;
         loop {
             let any_frame = self.socket.read_frame()?;
@@ -163,7 +165,7 @@ impl ReceiveFd for SocketCanChannel {
         }
     }
 
-    fn try_receive_fd(&mut self) -> Result<Option<Timestamped<Frame>>, Self::Error> {
+    fn try_receive_fd(&mut self) -> Result<Option<Timestamped<Frame, Instant>>, Self::Error> {
         self.ensure_nonblocking()?;
         match self.socket.read_frame() {
             Ok(any_frame) => {
@@ -181,7 +183,7 @@ impl ReceiveFd for SocketCanChannel {
     fn receive_fd_timeout(
         &mut self,
         timeout: Duration,
-    ) -> Result<Option<Timestamped<Frame>>, Self::Error> {
+    ) -> Result<Option<Timestamped<Frame, Instant>>, Self::Error> {
         self.ensure_blocking()?;
         self.socket.set_read_timeout(timeout)?;
         let deadline = Instant::now() + timeout;

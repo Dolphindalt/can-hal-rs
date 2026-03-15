@@ -57,10 +57,12 @@ impl AsyncTransmit for AsyncMockChannel {
 
 impl AsyncReceive for AsyncMockChannel {
     type Error = MockError;
+    type Timestamp = Instant;
 
     fn receive(
         &mut self,
-    ) -> impl std::future::Future<Output = Result<Timestamped<CanFrame>, MockError>> + Send {
+    ) -> impl std::future::Future<Output = Result<Timestamped<CanFrame, Instant>, MockError>> + Send
+    {
         let frame = self
             .rx_queue
             .pop_front()

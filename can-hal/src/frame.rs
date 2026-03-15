@@ -1,5 +1,3 @@
-use std::time::Instant;
-
 use crate::id::CanId;
 
 const CAN_MAX_LEN: usize = 8;
@@ -166,15 +164,19 @@ impl Frame {
 }
 
 /// A received frame paired with its timestamp.
+///
+/// The timestamp type `T` is chosen by the backend implementation.
+/// On `std` platforms this is typically `std::time::Instant`; on `no_std`
+/// targets it can be a hardware timer tick count or any `Clone` type.
 #[derive(Debug, Clone)]
-pub struct Timestamped<F> {
+pub struct Timestamped<F, T> {
     frame: F,
-    timestamp: Instant,
+    timestamp: T,
 }
 
-impl<F> Timestamped<F> {
+impl<F, T> Timestamped<F, T> {
     /// Create a new timestamped frame.
-    pub fn new(frame: F, timestamp: Instant) -> Self {
+    pub fn new(frame: F, timestamp: T) -> Self {
         Timestamped { frame, timestamp }
     }
 
@@ -183,9 +185,9 @@ impl<F> Timestamped<F> {
         &self.frame
     }
 
-    /// Returns the timestamp of when the frame was received.
-    pub fn timestamp(&self) -> Instant {
-        self.timestamp
+    /// Returns a reference to the timestamp.
+    pub fn timestamp(&self) -> &T {
+        &self.timestamp
     }
 
     /// Consumes self and returns the inner frame.

@@ -1,6 +1,6 @@
 [package]
 name = "can-hal-socketcan"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "SocketCAN backend for can-hal traits (Linux)"
 license = "MIT OR Apache-2.0"
@@ -10,5 +10,5 @@ keywords = ["can", "can-bus", "socketcan", "canfd", "linux"]
 categories = ["hardware-support", "os::linux-apis"]
 
 [dependencies]
-can-hal = { version = "0.1.0", path = "../can-hal" }
+can-hal = { version = "0.2.0", path = "../can-hal" }
 socketcan = "3.5"

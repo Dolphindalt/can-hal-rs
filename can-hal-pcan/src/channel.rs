@@ -118,8 +118,9 @@ impl Transmit for PcanChannel {
 
 impl Receive for PcanChannel {
     type Error = PcanError;
+    type Timestamp = Instant;
 
-    fn receive(&mut self) -> Result<Timestamped<CanFrame>, Self::Error> {
+    fn receive(&mut self) -> Result<Timestamped<CanFrame, Instant>, Self::Error> {
         loop {
             if let Some(frame) = self.read_classic()? {
                 return Ok(Timestamped::new(frame, Instant::now()));
@@ -128,7 +129,7 @@ impl Receive for PcanChannel {
         }
     }
 
-    fn try_receive(&mut self) -> Result<Option<Timestamped<CanFrame>>, Self::Error> {
+    fn try_receive(&mut self) -> Result<Option<Timestamped<CanFrame, Instant>>, Self::Error> {
         match self.read_classic()? {
             Some(frame) => Ok(Some(Timestamped::new(frame, Instant::now()))),
             None => Ok(None),
@@ -138,7 +139,7 @@ impl Receive for PcanChannel {
     fn receive_timeout(
         &mut self,
         timeout: Duration,
-    ) -> Result<Option<Timestamped<CanFrame>>, Self::Error> {
+    ) -> Result<Option<Timestamped<CanFrame, Instant>>, Self::Error> {
         let deadline = Instant::now() + timeout;
         loop {
             if let Some(frame) = self.read_classic()? {
@@ -186,8 +187,9 @@ impl TransmitFd for PcanChannel {
 
 impl ReceiveFd for PcanChannel {
     type Error = PcanError;
+    type Timestamp = Instant;
 
-    fn receive_fd(&mut self) -> Result<Timestamped<Frame>, Self::Error> {
+    fn receive_fd(&mut self) -> Result<Timestamped<Frame, Instant>, Self::Error> {
         if !self.fd_mode {
             return Err(PcanError::InvalidFrame(
                 "channel was not initialized in FD mode; use fd_timing_string() before connect()"
@@ -202,7 +204,7 @@ impl ReceiveFd for PcanChannel {
         }
     }
 
-    fn try_receive_fd(&mut self) -> Result<Option<Timestamped<Frame>>, Self::Error> {
+    fn try_receive_fd(&mut self) -> Result<Option<Timestamped<Frame, Instant>>, Self::Error> {
         if !self.fd_mode {
             return Err(PcanError::InvalidFrame(
                 "channel was not initialized in FD mode; use fd_timing_string() before connect()"
@@ -218,7 +220,7 @@ impl ReceiveFd for PcanChannel {
     fn receive_fd_timeout(
         &mut self,
         timeout: Duration,
-    ) -> Result<Option<Timestamped<Frame>>, Self::Error> {
+    ) -> Result<Option<Timestamped<Frame, Instant>>, Self::Error> {
         if !self.fd_mode {
             return Err(PcanError::InvalidFrame(
                 "channel was not initialized in FD mode; use fd_timing_string() before connect()"

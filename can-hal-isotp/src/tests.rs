@@ -52,15 +52,16 @@ impl Transmit for MockChannel {
 
 impl Receive for MockChannel {
     type Error = MockError;
+    type Timestamp = Instant;
 
-    fn receive(&mut self) -> Result<Timestamped<CanFrame>, MockError> {
+    fn receive(&mut self) -> Result<Timestamped<CanFrame, Instant>, MockError> {
         match self.rx_queue.pop_front() {
             Some(f) => Ok(Timestamped::new(f, Instant::now())),
             None => Err(MockError),
         }
     }
 
-    fn try_receive(&mut self) -> Result<Option<Timestamped<CanFrame>>, MockError> {
+    fn try_receive(&mut self) -> Result<Option<Timestamped<CanFrame, Instant>>, MockError> {
         Ok(self
             .rx_queue
             .pop_front()
@@ -70,7 +71,7 @@ impl Receive for MockChannel {
     fn receive_timeout(
         &mut self,
         _timeout: Duration,
-    ) -> Result<Option<Timestamped<CanFrame>>, MockError> {
+    ) -> Result<Option<Timestamped<CanFrame, Instant>>, MockError> {
         Ok(self
             .rx_queue
             .pop_front()
