@@ -7,6 +7,7 @@ pub type CanStatus = i32;
 // Return codes
 pub const CAN_OK: i32 = 0;
 pub const CAN_ERR_NOMSG: i32 = -2;
+pub const CAN_ERR_NOT_SUPPORTED: i32 = -19;
 
 // canOpenChannel flags
 pub const CAN_OPEN_CAN_FD: i32 = 0x0400;
@@ -113,4 +114,28 @@ pub type FnIoCtl = unsafe extern "system" fn(
     func: u32,
     buf: *mut c_void,
     buflen: u32,
+) -> CanStatus;
+
+/// Bus parameters in time quanta for `canSetBusParamsFdTq`.
+///
+/// All fields are `int` in the C API (`i32` on all platforms).
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct KvBusParamsTq {
+    pub tq: i32,
+    pub phase1: i32,
+    pub phase2: i32,
+    pub sjw: i32,
+    pub prop: i32,
+    pub prescaler: i32,
+}
+
+/// `canSetBusParamsFdTq(CanHandle, kvBusParamsTq arbitration, kvBusParamsTq data)`
+///
+/// Sets both nominal (arbitration) and data-phase timing in a single call
+/// using explicit time-quanta parameters. Available in CANlib SDK >= 5.x.
+pub type FnSetBusParamsFdTq = unsafe extern "system" fn(
+    hnd: CanHandle,
+    arbitration: KvBusParamsTq,
+    data: KvBusParamsTq,
 ) -> CanStatus;

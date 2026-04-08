@@ -16,6 +16,7 @@ pub struct KvaserLibrary {
     pub(crate) close: FnClose,
     pub(crate) set_bus_params: FnSetBusParams,
     pub(crate) set_bus_params_fd: FnSetBusParamsFd,
+    pub(crate) set_bus_params_fd_tq: Option<FnSetBusParamsFdTq>,
     pub(crate) bus_on: FnBusOn,
     pub(crate) bus_off: FnBusOff,
     pub(crate) write: FnWrite,
@@ -64,6 +65,13 @@ impl KvaserLibrary {
             let read_error_counters = *lib.get::<FnReadErrorCounters>(b"canReadErrorCounters\0")?;
             let io_ctl = *lib.get::<FnIoCtl>(b"canIoCtl\0")?;
 
+            // Optional: available in CANlib SDK >= 5.x. Falls back to
+            // canSetBusParams + canSetBusParamsFd when absent.
+            let set_bus_params_fd_tq = lib
+                .get::<FnSetBusParamsFdTq>(b"canSetBusParamsFdTq\0")
+                .ok()
+                .map(|sym| *sym);
+
             let kvaser_lib = Arc::new(KvaserLibrary {
                 _lib: lib,
                 initialize_library,
@@ -71,6 +79,7 @@ impl KvaserLibrary {
                 close,
                 set_bus_params,
                 set_bus_params_fd,
+                set_bus_params_fd_tq,
                 bus_on,
                 bus_off,
                 write,
