@@ -6,8 +6,14 @@ use can_hal::{ChannelBuilder, Driver, DriverFd};
 use crate::channel::KvaserChannel;
 use crate::error::{check_status, KvaserError};
 use crate::event::ReceiveEvent;
-use crate::ffi::CAN_OPEN_CAN_FD;
+use crate::ffi::{KvBusParamsTq, CAN_ERR_NOT_SUPPORTED, CAN_OPEN_CAN_FD};
 use crate::library::KvaserLibrary;
+
+/// Assumed CAN controller clock frequency.
+///
+/// 80 MHz is standard on Kvaser U100, Leaf Pro HS v2, and most modern Kvaser
+/// adapters. Used to compute the prescaler for the `canSetBusParamsFdTq` API.
+const CLOCK_HZ: u32 = 80_000_000;
 
 /// Nominal bus parameters: (tseg1, tseg2, sjw, noSamp, syncMode).
 #[derive(Debug, Clone, Copy)]
@@ -261,29 +267,67 @@ impl ChannelBuilder for KvaserChannelBuilder {
             let params = self
                 .custom_params
                 .unwrap_or_else(|| default_nominal_params(bitrate_hz));
-            check_status(unsafe {
-                (self.lib.set_bus_params)(
-                    handle,
-                    bitrate_hz as c_long,
-                    params.tseg1,
-                    params.tseg2,
-                    params.sjw,
-                    params.no_samp,
-                    params.sync_mode,
-                )
-            })?;
 
             if let Some(fd_hz) = self.fd_bitrate_hz {
                 let fd_params = self
                     .custom_fd_params
                     .unwrap_or_else(|| default_fd_params(fd_hz));
+
+                // Try canSetBusParamsFdTq first — it sets both nominal and
+                // data-phase timing in one call using explicit time quanta and
+                // works identically on Windows and Linux.
+                let use_legacy = if let Some(set_fd_tq) = self.lib.set_bus_params_fd_tq {
+                    let nominal_tq = to_nominal_tq(bitrate_hz, &params)?;
+                    let data_tq = to_data_tq(fd_hz, &fd_params)?;
+                    let status = unsafe { (set_fd_tq)(handle, nominal_tq, data_tq) };
+                    if status >= 0 {
+                        false // TQ succeeded
+                    } else if status == CAN_ERR_NOT_SUPPORTED {
+                        // Some linuxcan versions export the symbol but return
+                        // canERR_NOT_SUPPORTED for certain hardware/firmware.
+                        true
+                    } else {
+                        check_status(status)?;
+                        unreachable!()
+                    }
+                } else {
+                    true // symbol not present
+                };
+
+                if use_legacy {
+                    // Fallback: canSetBusParams + canSetBusParamsFd.
+                    check_status(unsafe {
+                        (self.lib.set_bus_params)(
+                            handle,
+                            bitrate_hz as c_long,
+                            params.tseg1,
+                            params.tseg2,
+                            params.sjw,
+                            params.no_samp,
+                            params.sync_mode,
+                        )
+                    })?;
+                    check_status(unsafe {
+                        (self.lib.set_bus_params_fd)(
+                            handle,
+                            fd_hz as c_long,
+                            fd_params.tseg1,
+                            fd_params.tseg2,
+                            fd_params.sjw,
+                        )
+                    })?;
+                }
+            } else {
+                // Classic CAN — canSetBusParams works on all platforms.
                 check_status(unsafe {
-                    (self.lib.set_bus_params_fd)(
+                    (self.lib.set_bus_params)(
                         handle,
-                        fd_hz as c_long,
-                        fd_params.tseg1,
-                        fd_params.tseg2,
-                        fd_params.sjw,
+                        bitrate_hz as c_long,
+                        params.tseg1,
+                        params.tseg2,
+                        params.sjw,
+                        params.no_samp,
+                        params.sync_mode,
                     )
                 })?;
             }
@@ -306,4 +350,57 @@ impl ChannelBuilder for KvaserChannelBuilder {
 
         result
     }
+}
+
+// ---------------------------------------------------------------------------
+// TQ conversion helpers
+// ---------------------------------------------------------------------------
+
+/// Convert nominal bus parameters + bitrate to a `KvBusParamsTq`.
+///
+/// For the nominal (arbitration) phase we set `prop = 0` and `phase1 = tseg1`.
+/// This is valid for short-cable USB setups; the propagation segment only
+/// matters on long buses where signal delay is significant.
+fn to_nominal_tq(bitrate_hz: u32, p: &BusParams) -> Result<KvBusParamsTq, KvaserError> {
+    let tq = 1 + p.tseg1 + p.tseg2;
+    let prescaler = compute_prescaler(bitrate_hz, tq)?;
+    Ok(KvBusParamsTq {
+        tq: tq as i32,
+        phase1: p.tseg1 as i32,
+        phase2: p.tseg2 as i32,
+        sjw: p.sjw as i32,
+        prop: 0,
+        prescaler,
+    })
+}
+
+/// Convert FD data-phase bus parameters + bitrate to a `KvBusParamsTq`.
+///
+/// The data phase requires `prop = 0`.
+fn to_data_tq(bitrate_hz: u32, p: &BusParamsFd) -> Result<KvBusParamsTq, KvaserError> {
+    let tq = 1 + p.tseg1 + p.tseg2;
+    let prescaler = compute_prescaler(bitrate_hz, tq)?;
+    Ok(KvBusParamsTq {
+        tq: tq as i32,
+        phase1: p.tseg1 as i32,
+        phase2: p.tseg2 as i32,
+        sjw: p.sjw as i32,
+        prop: 0,
+        prescaler,
+    })
+}
+
+/// Derive the prescaler from the clock, bitrate, and total time quanta.
+///
+/// Returns an error if the bitrate cannot be achieved exactly with the given
+/// TQ count at an 80 MHz clock.
+fn compute_prescaler(bitrate_hz: u32, tq: u32) -> Result<i32, KvaserError> {
+    let bit_time = (bitrate_hz as u64) * (tq as u64);
+    if bit_time == 0 || !(CLOCK_HZ as u64).is_multiple_of(bit_time) {
+        return Err(KvaserError::NotSupported(format!(
+            "cannot achieve {bitrate_hz} Hz with {tq} TQ at {CLOCK_HZ} Hz clock \
+             (prescaler would be non-integer)"
+        )));
+    }
+    Ok((CLOCK_HZ as u64 / bit_time) as i32)
 }
