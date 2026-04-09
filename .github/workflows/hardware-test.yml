@@ -74,27 +74,7 @@ jobs:
         with:
           ref: ${{ needs.check-permission.outputs.head_sha }}
 
-      # vcan0 is set up at boot by the NixOS can-hardware module.
-
-      # Unit tests (conversion, FFI mapping — no hardware needed).
-      - name: Test can-hal-socketcan (unit)
-        run: cargo test -p can-hal-socketcan
-
-      - name: Test can-hal-pcan (unit)
-        run: cargo test -p can-hal-pcan
-
-      - name: Test can-hal-kvaser (unit)
-        run: cargo test -p can-hal-kvaser
-
-      # Runtime tests — require real hardware and drivers.
-      - name: SocketCAN loopback (vcan0)
-        working-directory: examples/can-hal-isotp
-        run: cargo run --example loopback
-
-      - name: SocketCAN loopback FD (vcan0)
-        working-directory: examples/can-hal-isotp
-        run: cargo run --example loopback_fd
-
+      # Hardware tests — require real PCAN and Kvaser adapters.
       - name: PCAN bus status check
         working-directory: examples/can-hal-pcan
         run: cargo run --example bus_status
