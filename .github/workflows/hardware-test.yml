@@ -74,11 +74,7 @@ jobs:
         with:
           ref: ${{ needs.check-permission.outputs.head_sha }}
 
-      - name: Set up SocketCAN virtual interface
-        run: |
-          sudo modprobe vcan
-          sudo ip link add vcan0 type vcan 2>/dev/null || true
-          sudo ip link set vcan0 up
+      # vcan0 is set up at boot by the NixOS can-hardware module.
 
       # Unit tests (conversion, FFI mapping — no hardware needed).
       - name: Test can-hal-socketcan (unit)
