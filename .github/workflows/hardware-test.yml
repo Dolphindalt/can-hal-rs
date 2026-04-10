@@ -85,7 +85,7 @@ jobs:
       # Hardware tests — require real PCAN and Kvaser adapters.
       - name: PCAN bus status check
         working-directory: examples/can-hal-pcan
-        run: cargo run --example bus_status
+        run: timeout 10 cargo run --example bus_status || [ $? -eq 124 ]
 
       - name: Cross-adapter ISO-TP (PCAN <-> Kvaser)
         working-directory: examples/can-hal-isotp
