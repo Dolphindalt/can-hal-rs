@@ -257,7 +257,9 @@ impl ChannelBuilder for KvaserChannelBuilder {
             flags |= CAN_OPEN_CAN_FD;
         }
 
+        eprintln!("[kvaser] canOpenChannel({}, {flags})", self.channel_index);
         let handle = unsafe { (self.lib.open_channel)(self.channel_index, flags) };
+        eprintln!("[kvaser] canOpenChannel returned {handle}");
         if handle < 0 {
             return Err(KvaserError::Canlib(crate::error::KvaserStatus(handle)));
         }
@@ -267,6 +269,8 @@ impl ChannelBuilder for KvaserChannelBuilder {
             let params = self
                 .custom_params
                 .unwrap_or_else(|| default_nominal_params(bitrate_hz));
+            eprintln!("[kvaser] canSetBusParams(h={handle}, freq={bitrate_hz}, tseg1={}, tseg2={}, sjw={}, nosamp={}, sync={})",
+                params.tseg1, params.tseg2, params.sjw, params.no_samp, params.sync_mode);
 
             if let Some(fd_hz) = self.fd_bitrate_hz {
                 let fd_params = self
@@ -319,7 +323,7 @@ impl ChannelBuilder for KvaserChannelBuilder {
                 }
             } else {
                 // Classic CAN — canSetBusParams works on all platforms.
-                check_status(unsafe {
+                let sbp_status = unsafe {
                     (self.lib.set_bus_params)(
                         handle,
                         bitrate_hz as c_long,
@@ -329,10 +333,14 @@ impl ChannelBuilder for KvaserChannelBuilder {
                         params.no_samp,
                         params.sync_mode,
                     )
-                })?;
+                };
+                eprintln!("[kvaser] canSetBusParams returned {sbp_status}");
+                check_status(sbp_status)?;
             }
 
-            check_status(unsafe { (self.lib.bus_on)(handle) })?;
+            let bo_status = unsafe { (self.lib.bus_on)(handle) };
+            eprintln!("[kvaser] canBusOn returned {bo_status}");
+            check_status(bo_status)?;
 
             let event = ReceiveEvent::new(&self.lib, handle)?;
 
