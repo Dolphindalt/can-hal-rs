@@ -10,4 +10,5 @@ members = [
     "examples/can-hal-socketcan",
     "examples/can-hal-kvaser",
     "examples/can-hal-isotp",
+    "hardware-tests",
 ]
