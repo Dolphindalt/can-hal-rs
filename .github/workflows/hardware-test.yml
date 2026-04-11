@@ -97,14 +97,16 @@ jobs:
         run: ci-usb-to-vm
 
       - name: Copy source to VM
+        env:
+          SSH_OPTS: -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /var/lib/github-runner/win-test-ssh-key
         run: |
-          rsync -az --delete \
-            -e "ssh -o StrictHostKeyChecking=no -i /var/lib/github-runner/win-test-ssh-key" \
-            . ci@192.168.122.10:~/can-hal-rs/
+          ssh $SSH_OPTS ci@192.168.122.10 "if exist can-hal-rs rmdir /s /q can-hal-rs"
+          scp -r $SSH_OPTS . ci@192.168.122.10:can-hal-rs
 
       - name: Run hardware tests (Windows)
         run: |
-          ssh -o StrictHostKeyChecking=no -i /var/lib/github-runner/win-test-ssh-key \
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -i /var/lib/github-runner/win-test-ssh-key \
             ci@192.168.122.10 \
             "cd can-hal-rs && cargo test -p hardware-tests -- --test-threads=1"
 
