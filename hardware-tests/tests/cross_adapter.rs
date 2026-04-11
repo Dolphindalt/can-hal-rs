@@ -1,12 +1,134 @@
 use std::thread;
 use std::time::Duration;
 
-use can_hal::CanId;
-use can_hal::{ChannelBuilder, Driver};
+use can_hal::channel::Receive;
+use can_hal::frame::CanFrame;
+use can_hal::{BusState, BusStatus, CanId, ChannelBuilder, Driver, Transmit};
 use can_hal_isotp::{IsoTpChannel, IsoTpConfig};
 
 const TX_ID: u16 = 0x7E0;
 const RX_ID: u16 = 0x7E8;
+
+// ---------------------------------------------------------------------------
+// Raw CAN frame tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_pcan_bus_status() {
+    let driver = can_hal_pcan::PcanDriver::new().expect("PCAN-Basic library not found");
+    let channel = driver
+        .channel(0)
+        .unwrap()
+        .bitrate(500_000)
+        .unwrap()
+        .connect()
+        .expect("Failed to open PCAN channel");
+
+    let state = channel.bus_state().expect("Failed to read bus state");
+    assert_eq!(
+        state,
+        BusState::ErrorActive,
+        "Expected ErrorActive bus state"
+    );
+
+    let counters = channel
+        .error_counters()
+        .expect("Failed to read error counters");
+    assert_eq!(counters.transmit, 0, "Expected 0 TX errors");
+    assert_eq!(counters.receive, 0, "Expected 0 RX errors");
+}
+
+#[test]
+fn test_pcan_to_kvaser_raw_frame() {
+    let frame = CanFrame::new(
+        CanId::new_standard(0x100).unwrap(),
+        &[0xDE, 0xAD, 0xBE, 0xEF],
+    )
+    .expect("Failed to create frame");
+
+    let rx_handle = thread::spawn(move || {
+        let driver = can_hal_kvaser::KvaserDriver::new().unwrap();
+        let mut channel = driver
+            .channel(0)
+            .unwrap()
+            .bitrate(500_000)
+            .unwrap()
+            .connect()
+            .unwrap();
+        let received = channel
+            .receive_timeout(Duration::from_secs(5))
+            .expect("Kvaser receive error")
+            .expect("Kvaser receive timeout");
+        received.into_frame()
+    });
+
+    thread::sleep(Duration::from_millis(200));
+
+    let mut pcan_channel = {
+        let driver = can_hal_pcan::PcanDriver::new().unwrap();
+        driver
+            .channel(0)
+            .unwrap()
+            .bitrate(500_000)
+            .unwrap()
+            .connect()
+            .unwrap()
+    };
+    pcan_channel.transmit(&frame).expect("PCAN transmit failed");
+
+    let received = rx_handle.join().expect("Receiver thread panicked");
+    assert_eq!(received.id(), frame.id(), "CAN ID mismatch");
+    assert_eq!(received.data(), frame.data(), "Frame data mismatch");
+}
+
+#[test]
+fn test_kvaser_to_pcan_raw_frame() {
+    let frame = CanFrame::new(
+        CanId::new_standard(0x200).unwrap(),
+        &[0xCA, 0xFE, 0xBA, 0xBE],
+    )
+    .expect("Failed to create frame");
+
+    let rx_handle = thread::spawn(move || {
+        let driver = can_hal_pcan::PcanDriver::new().unwrap();
+        let mut channel = driver
+            .channel(0)
+            .unwrap()
+            .bitrate(500_000)
+            .unwrap()
+            .connect()
+            .unwrap();
+        let received = channel
+            .receive_timeout(Duration::from_secs(5))
+            .expect("PCAN receive error")
+            .expect("PCAN receive timeout");
+        received.into_frame()
+    });
+
+    thread::sleep(Duration::from_millis(200));
+
+    let mut kvaser_channel = {
+        let driver = can_hal_kvaser::KvaserDriver::new().unwrap();
+        driver
+            .channel(0)
+            .unwrap()
+            .bitrate(500_000)
+            .unwrap()
+            .connect()
+            .unwrap()
+    };
+    kvaser_channel
+        .transmit(&frame)
+        .expect("Kvaser transmit failed");
+
+    let received = rx_handle.join().expect("Receiver thread panicked");
+    assert_eq!(received.id(), frame.id(), "CAN ID mismatch");
+    assert_eq!(received.data(), frame.data(), "Frame data mismatch");
+}
+
+// ---------------------------------------------------------------------------
+// ISO-TP tests
+// ---------------------------------------------------------------------------
 
 fn isotp_transfer_pcan_to_kvaser(payload: &[u8]) {
     let tx_id = CanId::new_standard(TX_ID).unwrap();
