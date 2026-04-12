@@ -11,5 +11,5 @@ keywords = ["can", "can-bus", "socketcan", "canfd", "linux"]
 categories = ["hardware-support", "os::linux-apis"]
 
 [dependencies]
-can-hal = { version = "0.2.0", path = "../can-hal" }
+can-hal = { version = "0.2.0", path = "../can-hal", package = "can-hal-rs" }
 socketcan = "3.5"
