@@ -125,10 +125,10 @@ impl ReceiveEvent {
         use windows_sys::Win32::Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT};
         use windows_sys::Win32::System::Threading::WaitForSingleObject;
 
-        let ms = match timeout {
-            Some(d) => d.as_millis().min(u32::MAX as u128) as u32,
-            None => 0xFFFF_FFFF, // INFINITE
-        };
+        #[allow(clippy::cast_possible_truncation)] // clamped to u32::MAX
+        let ms = timeout.map_or(0xFFFF_FFFF, |d| {
+            d.as_millis().min(u128::from(u32::MAX)) as u32
+        });
 
         // SAFETY: event_handle was obtained from canIoCtl
         let result = unsafe { WaitForSingleObject(self.event_handle, ms) };

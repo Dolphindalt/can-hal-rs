@@ -183,7 +183,7 @@ impl ChannelBuilder for KvaserChannelBuilder {
         ))
     }
 
-    #[allow(clippy::cast_possible_wrap)] // bitrate values fit in c_long
+    #[allow(clippy::cast_possible_wrap, clippy::cast_lossless)] // c_long is i32 on Windows, i64 on Linux
     fn connect(self) -> Result<KvaserChannel, KvaserError> {
         let bitrate_hz = self.bitrate_hz.ok_or_else(|| {
             KvaserError::NotSupported("bitrate() must be called before connect()".into())
@@ -238,7 +238,7 @@ impl ChannelBuilder for KvaserChannelBuilder {
                     check_status(unsafe {
                         (self.lib.set_bus_params)(
                             handle,
-                            c_long::from(bitrate_hz),
+                            bitrate_hz as c_long,
                             params.tseg1,
                             params.tseg2,
                             params.sjw,
@@ -250,7 +250,7 @@ impl ChannelBuilder for KvaserChannelBuilder {
                     check_status(unsafe {
                         (self.lib.set_bus_params_fd)(
                             handle,
-                            c_long::from(fd_hz),
+                            fd_hz as c_long,
                             fd_params.tseg1,
                             fd_params.tseg2,
                             fd_params.sjw,
@@ -262,7 +262,7 @@ impl ChannelBuilder for KvaserChannelBuilder {
                 check_status(unsafe {
                     (self.lib.set_bus_params)(
                         handle,
-                        c_long::from(bitrate_hz),
+                        bitrate_hz as c_long,
                         params.tseg1,
                         params.tseg2,
                         params.sjw,

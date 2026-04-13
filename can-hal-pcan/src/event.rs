@@ -69,7 +69,7 @@ impl ReceiveEvent {
         use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
         use windows_sys::Win32::System::Threading::CreateEventW;
 
-        // Create an auto-reset, initially non-signaled event.
+        // SAFETY: CreateEventW is a safe Windows API call with valid null pointers
         let event_handle = unsafe { CreateEventW(ptr::null(), 0, 0, ptr::null()) };
         if event_handle == INVALID_HANDLE_VALUE || event_handle.is_null() {
             return Err(PcanError::Platform("CreateEventW failed".into()));
@@ -77,22 +77,25 @@ impl ReceiveEvent {
 
         // Register the event with PCAN.
         let mut ev = event_handle;
+        #[allow(clippy::cast_possible_truncation)] // size_of::<isize>() fits in u32
+        // SAFETY: set_value was loaded from PCANBasic; handle is valid; ev is stack-allocated
         let status = unsafe {
             (lib.set_value)(
                 handle,
                 ffi::PCAN_RECEIVE_EVENT,
-                &mut ev as *mut _ as *mut std::ffi::c_void,
+                std::ptr::from_mut(&mut ev).cast::<std::ffi::c_void>(),
                 std::mem::size_of::<isize>() as u32,
             )
         };
         if status != ffi::PCAN_ERROR_OK {
+            // SAFETY: event_handle was successfully created above
             unsafe {
                 windows_sys::Win32::Foundation::CloseHandle(event_handle);
             }
             return Err(PcanError::Pcan(PcanStatus(status)));
         }
 
-        Ok(ReceiveEvent {
+        Ok(Self {
             lib,
             handle,
             event_handle,
@@ -104,11 +107,12 @@ impl ReceiveEvent {
         use windows_sys::Win32::Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT};
         use windows_sys::Win32::System::Threading::WaitForSingleObject;
 
-        let ms = match timeout {
-            Some(d) => d.as_millis().min(u32::MAX as u128) as u32,
-            None => 0xFFFF_FFFF, // INFINITE
-        };
+        #[allow(clippy::cast_possible_truncation)] // clamped to u32::MAX
+        let ms = timeout.map_or(0xFFFF_FFFF, |d| {
+            d.as_millis().min(u128::from(u32::MAX)) as u32
+        });
 
+        // SAFETY: event_handle was obtained from CreateEventW
         let result = unsafe { WaitForSingleObject(self.event_handle, ms) };
         match result {
             WAIT_OBJECT_0 => Ok(true),
@@ -178,11 +182,17 @@ impl Drop for ReceiveEvent {
         {
             // Deregister the event from PCAN, then close the handle.
             let mut zero: *mut std::ffi::c_void = std::ptr::null_mut();
+            #[allow(
+                clippy::multiple_unsafe_ops_per_block,
+                clippy::let_underscore_must_use,
+                clippy::cast_possible_truncation
+            )]
+            // SAFETY: set_value and CloseHandle cleanup; errors deliberately ignored in Drop
             unsafe {
                 let _ = (self.lib.set_value)(
                     self.handle,
                     ffi::PCAN_RECEIVE_EVENT,
-                    &mut zero as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut zero).cast::<std::ffi::c_void>(),
                     std::mem::size_of::<isize>() as u32,
                 );
                 windows_sys::Win32::Foundation::CloseHandle(self.event_handle);

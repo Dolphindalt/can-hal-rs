@@ -83,14 +83,19 @@ impl KvaserChannel {
 impl Transmit for KvaserChannel {
     type Error = KvaserError;
 
-    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        clippy::cast_sign_loss,
+        clippy::cast_lossless
+    )]
     fn transmit(&mut self, frame: &CanFrame) -> Result<(), KvaserError> {
         let (id, flags) = to_canlib_id(frame.id());
         // SAFETY: canWrite was loaded from canlib; handle is valid; data pointer is valid
         check_status(unsafe {
             (self.lib.write)(
                 self.handle,
-                c_long::from(id),
+                id as c_long,
                 frame.data().as_ptr().cast(),
                 frame.len() as u32,
                 flags,
@@ -166,7 +171,12 @@ impl Receive for KvaserChannel {
 impl TransmitFd for KvaserChannel {
     type Error = KvaserError;
 
-    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        clippy::cast_sign_loss,
+        clippy::cast_lossless
+    )]
     fn transmit_fd(&mut self, frame: &CanFdFrame) -> Result<(), KvaserError> {
         if !self.fd_mode {
             return Err(KvaserError::NotSupported(
@@ -185,7 +195,7 @@ impl TransmitFd for KvaserChannel {
         check_status(unsafe {
             (self.lib.write)(
                 self.handle,
-                c_long::from(id),
+                id as c_long,
                 frame.data().as_ptr().cast(),
                 frame.len() as u32,
                 flags,
@@ -301,6 +311,7 @@ impl Filterable for KvaserChannel {
 
 /// Merge all filters matching `predicate` into a single (code, mask) pair and
 /// apply it via `canAccept`. No heap allocation.
+#[allow(clippy::cast_possible_wrap, clippy::cast_lossless)] // c_long is i32 on Windows, i64 on Linux
 fn apply_merged_filter(
     lib: &KvaserLibrary,
     handle: i32,
@@ -321,9 +332,9 @@ fn apply_merged_filter(
 
     if let Some((code, mask)) = merged {
         // SAFETY: canAccept was loaded from canlib; handle is valid
-        check_status(unsafe { (lib.accept)(handle, c_long::from(code), code_flag) })?;
+        check_status(unsafe { (lib.accept)(handle, code as c_long, code_flag) })?;
         // SAFETY: canAccept was loaded from canlib; handle is valid
-        check_status(unsafe { (lib.accept)(handle, c_long::from(mask), mask_flag) })?;
+        check_status(unsafe { (lib.accept)(handle, mask as c_long, mask_flag) })?;
     }
 
     Ok(())
