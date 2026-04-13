@@ -41,13 +41,13 @@ jobs:
             ci@192.168.122.10 \
             "cd can-hal-rs && cargo test -p hardware-tests -- --test-threads=1"
 
-      - name: Return USB to host
-        if: always()
-        run: ci-usb-to-host
-
       - name: Stop Windows VM
         if: always()
         run: ci-vm-stop
+
+      - name: Power cycle USB hub
+        if: always()
+        run: uhubctl --action cycle --delay 5 --location 1-3 --ports 1,2
 
   linux-hardware-tests:
     name: Linux hardware tests
