@@ -1,6 +1,6 @@
 [package]
 name = "can-hal-pcan"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 rust-version = "1.81"
 description = "PCAN-Basic backend for can-hal-rs traits (Windows and Linux)"
@@ -10,8 +10,11 @@ repository = "https://github.com/Dolphindalt/can-hal-rs"
 keywords = ["can", "can-bus", "pcan", "peak", "canfd"]
 categories = ["hardware-support"]
 
+[lints]
+workspace = true
+
 [dependencies]
-can-hal = { version = "0.3.1", path = "../can-hal", package = "can-hal-rs" }
+can-hal = { version = "0.3.2", path = "../can-hal", package = "can-hal-rs" }
 libloading = "0.8"
 
 [target.'cfg(windows)'.dependencies]

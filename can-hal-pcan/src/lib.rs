@@ -78,6 +78,6 @@ pub use error::PcanError;
 
 // Compile-time assertion: channel must be Send so it can be moved across threads.
 const _: fn() = || {
-    fn assert_send<T: Send>() {}
+    const fn assert_send<T: Send>() {}
     assert_send::<PcanChannel>();
 };

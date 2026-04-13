@@ -35,7 +35,7 @@ pub struct MockChannel {
 
 impl MockChannel {
     pub fn new(rx: impl IntoIterator<Item = CanFrame>) -> Self {
-        MockChannel {
+        Self {
             tx_frames: Vec::new(),
             rx_queue: rx.into_iter().collect(),
         }
@@ -55,10 +55,9 @@ impl Receive for MockChannel {
     type Timestamp = Instant;
 
     fn receive(&mut self) -> Result<Timestamped<CanFrame, Instant>, MockError> {
-        match self.rx_queue.pop_front() {
-            Some(f) => Ok(Timestamped::new(f, Instant::now())),
-            None => Err(MockError),
-        }
+        self.rx_queue
+            .pop_front()
+            .map_or(Err(MockError), |f| Ok(Timestamped::new(f, Instant::now())))
     }
 
     fn try_receive(&mut self) -> Result<Option<Timestamped<CanFrame, Instant>>, MockError> {
@@ -165,6 +164,7 @@ fn test_send_single_frame_padding() {
 }
 
 #[test]
+#[allow(clippy::cast_possible_truncation)]
 fn test_send_multi_frame() {
     // 20 bytes: FF(20) + CFs, need FC(CTS) in rx_queue
     let payload: Vec<u8> = (0..20).collect();
@@ -197,7 +197,7 @@ fn test_send_multi_frame() {
 
         let remaining = payload.len() - offset;
         let chunk_len = remaining.min(7);
-        assert_eq!(&d[1..1 + chunk_len], &payload[offset..offset + chunk_len]);
+        assert_eq!(&d[1..=chunk_len], &payload[offset..offset + chunk_len]);
         offset += chunk_len;
     }
     assert_eq!(offset, 20, "all bytes should be sent");
@@ -234,7 +234,7 @@ fn test_send_fc_wait_limit_exceeded() {
     assert!(result.is_err());
     match result.unwrap_err() {
         IsoTpError::WaitLimitExceeded => {}
-        e => panic!("expected WaitLimitExceeded, got {:?}", e),
+        e => panic!("expected WaitLimitExceeded, got {e:?}"),
     }
 }
 
@@ -249,11 +249,12 @@ fn test_send_fc_overflow() {
     assert!(result.is_err());
     match result.unwrap_err() {
         IsoTpError::BufferOverflow => {}
-        e => panic!("expected BufferOverflow, got {:?}", e),
+        e => panic!("expected BufferOverflow, got {e:?}"),
     }
 }
 
 #[test]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn test_send_long_ff_path() {
     // Verifies the 32-bit length encoding path (long FF) for payloads > 4095 bytes.
     // Note: the PayloadTooLarge error (data.len() > 0xFFFF_FFFF) cannot be triggered
@@ -353,7 +354,7 @@ fn test_receive_sequence_error() {
             assert_eq!(expected, 2);
             assert_eq!(got, 3);
         }
-        e => panic!("expected SequenceError, got {:?}", e),
+        e => panic!("expected SequenceError, got {e:?}"),
     }
 }
 
@@ -367,7 +368,7 @@ fn test_receive_timeout() {
     assert!(result.is_err());
     match result.unwrap_err() {
         IsoTpError::Timeout => {}
-        e => panic!("expected Timeout, got {:?}", e),
+        e => panic!("expected Timeout, got {e:?}"),
     }
 }
 
@@ -389,6 +390,7 @@ fn test_receive_extended_addressing() {
 }
 
 #[test]
+#[allow(clippy::cast_possible_truncation)]
 fn test_long_ff() {
     // Long FF: total length > 4095, uses 32-bit encoding.
     // We'll use total_len = 5000 = 0x00001388

@@ -33,8 +33,9 @@ enum InterfaceSpec {
 pub struct SocketCanDriver;
 
 impl SocketCanDriver {
-    pub fn new() -> Self {
-        SocketCanDriver
+    #[must_use]
+    pub const fn new() -> Self {
+        Self
     }
 
     /// Begin configuring a channel on the named interface.

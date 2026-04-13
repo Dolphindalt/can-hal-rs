@@ -26,19 +26,15 @@ pub enum IsoTpError<E: Send + Sync + 'static> {
 impl<E: fmt::Display + Send + Sync + 'static> fmt::Display for IsoTpError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            IsoTpError::CanError(e) => write!(f, "CAN error: {}", e),
-            IsoTpError::Timeout => write!(f, "ISO-TP timeout"),
-            IsoTpError::BufferOverflow => write!(f, "ISO-TP receiver buffer overflow"),
-            IsoTpError::InvalidFrame => write!(f, "invalid ISO-TP frame"),
-            IsoTpError::SequenceError { expected, got } => {
-                write!(
-                    f,
-                    "ISO-TP sequence error: expected {}, got {}",
-                    expected, got
-                )
+            Self::CanError(e) => write!(f, "CAN error: {e}"),
+            Self::Timeout => write!(f, "ISO-TP timeout"),
+            Self::BufferOverflow => write!(f, "ISO-TP receiver buffer overflow"),
+            Self::InvalidFrame => write!(f, "invalid ISO-TP frame"),
+            Self::SequenceError { expected, got } => {
+                write!(f, "ISO-TP sequence error: expected {expected}, got {got}")
             }
-            IsoTpError::PayloadTooLarge => write!(f, "ISO-TP payload too large"),
-            IsoTpError::WaitLimitExceeded => write!(f, "ISO-TP FC Wait limit exceeded"),
+            Self::PayloadTooLarge => write!(f, "ISO-TP payload too large"),
+            Self::WaitLimitExceeded => write!(f, "ISO-TP FC Wait limit exceeded"),
         }
     }
 }
@@ -46,7 +42,7 @@ impl<E: fmt::Display + Send + Sync + 'static> fmt::Display for IsoTpError<E> {
 impl<E: std::error::Error + Send + Sync + 'static> std::error::Error for IsoTpError<E> {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            IsoTpError::CanError(e) => Some(e),
+            Self::CanError(e) => Some(e),
             _ => None,
         }
     }

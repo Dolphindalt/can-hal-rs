@@ -94,7 +94,7 @@ impl Receive for SocketCanChannel {
                     let frame = convert::from_socketcan_data_frame(&data_frame)?;
                     return Ok(Some(Timestamped::new(frame, now)));
                 }
-                Ok(_) => continue, // skip FD/remote/error frames, drain queue
+                Ok(_) => {} // skip FD/remote/error frames, drain queue
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(None),
                 Err(e) => return Err(SocketCanError::Io(e)),
             }
@@ -121,8 +121,7 @@ impl Receive for SocketCanChannel {
                     if now >= deadline {
                         break Ok(None);
                     }
-                    let _ = self.socket.set_read_timeout(deadline - now);
-                    continue;
+                    self.socket.set_read_timeout(deadline - now).ok();
                 }
                 Err(e)
                     if e.kind() == io::ErrorKind::WouldBlock
@@ -134,7 +133,7 @@ impl Receive for SocketCanChannel {
             }
         };
         // Restore to no timeout (infinite blocking).
-        let _ = self.socket.set_read_timeout(None);
+        self.socket.set_read_timeout(None).ok();
         result
     }
 }
@@ -158,10 +157,10 @@ impl ReceiveFd for SocketCanChannel {
         loop {
             let any_frame = self.socket.read_frame()?;
             let now = Instant::now();
-            match convert::from_socketcan_any_frame(any_frame) {
-                Ok(frame) => return Ok(Timestamped::new(frame, now)),
-                Err(_) => continue, // Skip remote/error frames.
+            if let Ok(frame) = convert::from_socketcan_any_frame(any_frame) {
+                return Ok(Timestamped::new(frame, now));
             }
+            // Skip remote/error frames.
         }
     }
 
@@ -170,10 +169,9 @@ impl ReceiveFd for SocketCanChannel {
         match self.socket.read_frame() {
             Ok(any_frame) => {
                 let now = Instant::now();
-                match convert::from_socketcan_any_frame(any_frame) {
-                    Ok(frame) => Ok(Some(Timestamped::new(frame, now))),
-                    Err(_) => Ok(None),
-                }
+                Ok(convert::from_socketcan_any_frame(any_frame)
+                    .ok()
+                    .map(|frame| Timestamped::new(frame, now)))
             }
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(None),
             Err(e) => Err(SocketCanError::Io(e)),
@@ -191,17 +189,14 @@ impl ReceiveFd for SocketCanChannel {
             match self.socket.read_frame() {
                 Ok(any_frame) => {
                     let now = Instant::now();
-                    match convert::from_socketcan_any_frame(any_frame) {
-                        Ok(frame) => break Ok(Some(Timestamped::new(frame, now))),
-                        Err(_) => {
-                            // Skip remote/error frames. Update remaining timeout.
-                            if now >= deadline {
-                                break Ok(None);
-                            }
-                            let _ = self.socket.set_read_timeout(deadline - now);
-                            continue;
-                        }
+                    if let Ok(frame) = convert::from_socketcan_any_frame(any_frame) {
+                        break Ok(Some(Timestamped::new(frame, now)));
                     }
+                    // Skip remote/error frames. Update remaining timeout.
+                    if now >= deadline {
+                        break Ok(None);
+                    }
+                    self.socket.set_read_timeout(deadline - now).ok();
                 }
                 Err(e)
                     if e.kind() == io::ErrorKind::WouldBlock
@@ -212,7 +207,7 @@ impl ReceiveFd for SocketCanChannel {
                 Err(e) => break Err(SocketCanError::Io(e)),
             }
         };
-        let _ = self.socket.set_read_timeout(None);
+        self.socket.set_read_timeout(None).ok();
         result
     }
 }

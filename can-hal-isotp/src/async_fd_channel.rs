@@ -14,8 +14,8 @@ pub struct AsyncIsoTpFdChannel<C> {
 
 impl<C> AsyncIsoTpFdChannel<C> {
     /// Create a new async ISO-TP FD channel.
-    pub fn new(channel: C, config: IsoTpConfig) -> Self {
-        AsyncIsoTpFdChannel { channel, config }
+    pub const fn new(channel: C, config: IsoTpConfig) -> Self {
+        Self { channel, config }
     }
 
     /// Consume this channel and return the inner CAN FD channel.
@@ -34,7 +34,7 @@ where
         let overhead = self.config.overhead();
         let max_sf_fd = 62 - overhead;
 
-        if data.len() as u64 > u32::MAX as u64 {
+        if data.len() as u64 > u64::from(u32::MAX) {
             return Err(IsoTpError::PayloadTooLarge);
         }
 
@@ -83,7 +83,7 @@ where
                     tokio::time::sleep(st_min_dur).await;
                 }
 
-                if fc_bs > 0 && block_count >= fc_bs as u16 {
+                if fc_bs > 0 && block_count >= u16::from(fc_bs) {
                     let (new_bs, new_st) = self.wait_for_fc().await?;
                     fc_bs = new_bs;
                     st_min_dur = new_st;
@@ -125,16 +125,15 @@ where
                     IsoTpFrame::FirstFrame { total_len, data } => {
                         return Ok((Some(total_len), data.to_vec()));
                     }
-                    _ => continue,
+                    _ => {}
                 }
             }
         })
         .await
         .map_err(|_| IsoTpError::Timeout)??;
 
-        let total_len = match total_len {
-            None => return Ok(collected),
-            Some(len) => len,
+        let Some(total_len) = total_len else {
+            return Ok(collected);
         };
 
         self.send_fc(FcFlag::ContinueToSend).await?;
@@ -168,35 +167,31 @@ where
             let parsed = IsoTpFrame::parse(cf_frame.data(), overhead)
                 .map_err(|_| IsoTpError::InvalidFrame)?;
 
-            match parsed {
-                IsoTpFrame::ConsecutiveFrame { sn, data } => {
-                    if sn != expected_sn {
-                        return Err(IsoTpError::SequenceError {
-                            expected: expected_sn,
-                            got: sn,
-                        });
-                    }
-
-                    let bytes_needed = total_len - collected.len();
-                    let take = data.len().min(bytes_needed);
-                    collected.extend_from_slice(&data[..take]);
-
-                    expected_sn = (expected_sn + 1) & 0x0F;
-                    block_count += 1;
-
-                    if self.config.block_size > 0
-                        && block_count >= self.config.block_size as u16
-                        && collected.len() < total_len
-                    {
-                        self.send_fc(FcFlag::ContinueToSend).await?;
-                        block_count = 0;
-                    }
+            if let IsoTpFrame::ConsecutiveFrame { sn, data } = parsed {
+                if sn != expected_sn {
+                    return Err(IsoTpError::SequenceError {
+                        expected: expected_sn,
+                        got: sn,
+                    });
                 }
-                _ => {
-                    // Per ISO 15765-2, unexpected PCI types during
-                    // CF reassembly are silently ignored.
-                    continue;
+
+                let bytes_needed = total_len - collected.len();
+                let take = data.len().min(bytes_needed);
+                collected.extend_from_slice(&data[..take]);
+
+                expected_sn = (expected_sn + 1) & 0x0F;
+                block_count += 1;
+
+                if self.config.block_size > 0
+                    && block_count >= u16::from(self.config.block_size)
+                    && collected.len() < total_len
+                {
+                    self.send_fc(FcFlag::ContinueToSend).await?;
+                    block_count = 0;
                 }
+            } else {
+                // Per ISO 15765-2, unexpected PCI types during
+                // CF reassembly are silently ignored.
             }
         }
 
@@ -227,12 +222,13 @@ where
                 let isotp = IsoTpFrame::parse(frame.data(), overhead)
                     .map_err(|_| IsoTpError::InvalidFrame)?;
 
-                match isotp {
-                    IsoTpFrame::FlowControl {
-                        flag,
-                        block_size,
-                        st_min,
-                    } => match flag {
+                if let IsoTpFrame::FlowControl {
+                    flag,
+                    block_size,
+                    st_min,
+                } = isotp
+                {
+                    match flag {
                         FcFlag::ContinueToSend => {
                             let st_dur = interpret_st_min(st_min);
                             return Ok((block_size, st_dur));
@@ -244,11 +240,9 @@ where
                                     return Err(IsoTpError::WaitLimitExceeded);
                                 }
                             }
-                            continue;
                         }
                         FcFlag::Overflow => return Err(IsoTpError::BufferOverflow),
-                    },
-                    _ => continue,
+                    }
                 }
             }
         })

@@ -42,6 +42,9 @@ impl PcanLibrary {
         // SAFETY: Loading a shared library can execute arbitrary code (DllMain
         // on Windows, constructor functions on Linux). This is inherent to
         // dynamic loading and is the caller's responsibility.
+        // All operations in this block are dlsym/GetProcAddress lookups from
+        // the same valid library handle opened above.
+        #[allow(clippy::multiple_unsafe_ops_per_block)]
         unsafe {
             let lib = Library::new(path)?;
 
@@ -57,7 +60,7 @@ impl PcanLibrary {
             let get_value = *lib.get::<ffi::FnGetValue>(b"CAN_GetValue\0")?;
             let set_value = *lib.get::<ffi::FnSetValue>(b"CAN_SetValue\0")?;
 
-            Ok(Arc::new(PcanLibrary {
+            Ok(Arc::new(Self {
                 _lib: lib,
                 initialize,
                 initialize_fd,
@@ -75,7 +78,7 @@ impl PcanLibrary {
     }
 }
 
-fn default_library_name() -> &'static str {
+const fn default_library_name() -> &'static str {
     #[cfg(target_os = "windows")]
     {
         "PCANBasic.dll"

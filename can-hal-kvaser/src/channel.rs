@@ -35,9 +35,11 @@ pub struct KvaserChannel {
 
 impl Drop for KvaserChannel {
     fn drop(&mut self) {
+        // SAFETY: bus_off and close were loaded from canlib; handle is valid from canOpenChannel
+        #[allow(clippy::multiple_unsafe_ops_per_block, clippy::let_underscore_must_use)]
         unsafe {
-            (self.lib.bus_off)(self.handle);
-            (self.lib.close)(self.handle);
+            let _ = (self.lib.bus_off)(self.handle);
+            let _ = (self.lib.close)(self.handle);
         }
     }
 }
@@ -46,12 +48,13 @@ impl KvaserChannel {
     /// Non-blocking read. Returns `Ok(None)` if the queue is empty.
     fn read_frame(&mut self) -> Result<Option<Frame>, KvaserError> {
         let mut raw_id: c_long = 0;
-        // 64 bytes covers both classic CAN (≤8 bytes used) and CAN FD (≤64 bytes).
+        // 64 bytes covers both classic CAN (<=8 bytes used) and CAN FD (<=64 bytes).
         let mut data = [0u8; 64];
         let mut dlc: u32 = 0;
         let mut flags: u32 = 0;
         let mut timestamp: c_ulong = 0;
 
+        // SAFETY: canRead was loaded from canlib; handle is valid; all pointers are stack-allocated
         let status = unsafe {
             (self.lib.read)(
                 self.handle,
@@ -67,6 +70,8 @@ impl KvaserChannel {
             return Ok(None);
         }
         check_status(status)?;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        // CAN ID is at most 29 bits; raw_id from canRead is always non-negative
         from_canlib_frame(raw_id as u32, &data, dlc, flags)
     }
 }
@@ -78,8 +83,15 @@ impl KvaserChannel {
 impl Transmit for KvaserChannel {
     type Error = KvaserError;
 
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        clippy::cast_sign_loss,
+        clippy::cast_lossless
+    )]
     fn transmit(&mut self, frame: &CanFrame) -> Result<(), KvaserError> {
         let (id, flags) = to_canlib_id(frame.id());
+        // SAFETY: canWrite was loaded from canlib; handle is valid; data pointer is valid
         check_status(unsafe {
             (self.lib.write)(
                 self.handle,
@@ -89,7 +101,7 @@ impl Transmit for KvaserChannel {
                 flags,
             )
         })?;
-        // Wait up to 100 ms for the frame to leave the transmit buffer.
+        // SAFETY: canWriteSync was loaded from canlib; handle is valid
         check_status(unsafe { (self.lib.write_sync)(self.handle, 100) })
     }
 }
@@ -119,7 +131,7 @@ impl Receive for KvaserChannel {
         loop {
             match self.read_frame()? {
                 Some(Frame::Can(f)) => return Ok(Some(Timestamped::new(f, Instant::now()))),
-                Some(Frame::Fd(_)) => continue, // skip FD frames
+                Some(Frame::Fd(_)) => {} // skip FD frames
                 None => return Ok(None),
             }
         }
@@ -137,8 +149,8 @@ impl Receive for KvaserChannel {
             loop {
                 match self.read_frame()? {
                     Some(Frame::Can(f)) => return Ok(Some(Timestamped::new(f, Instant::now()))),
-                    Some(Frame::Fd(_)) => continue, // skip FD frames, drain queue
-                    None => break,                  // queue empty, need to wait
+                    Some(Frame::Fd(_)) => {} // skip FD frames, drain queue
+                    None => break,           // queue empty, need to wait
                 }
             }
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -159,6 +171,12 @@ impl Receive for KvaserChannel {
 impl TransmitFd for KvaserChannel {
     type Error = KvaserError;
 
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        clippy::cast_sign_loss,
+        clippy::cast_lossless
+    )]
     fn transmit_fd(&mut self, frame: &CanFdFrame) -> Result<(), KvaserError> {
         if !self.fd_mode {
             return Err(KvaserError::NotSupported(
@@ -173,6 +191,7 @@ impl TransmitFd for KvaserChannel {
         if frame.esi() {
             flags |= CAN_MSG_ESI;
         }
+        // SAFETY: canWrite was loaded from canlib; handle is valid; data pointer is valid
         check_status(unsafe {
             (self.lib.write)(
                 self.handle,
@@ -182,6 +201,7 @@ impl TransmitFd for KvaserChannel {
                 flags,
             )
         })?;
+        // SAFETY: canWriteSync was loaded from canlib; handle is valid
         check_status(unsafe { (self.lib.write_sync)(self.handle, 100) })
     }
 }
@@ -217,10 +237,9 @@ impl ReceiveFd for KvaserChannel {
                 "channel was not opened in FD mode; call data_bitrate() before connect()".into(),
             ));
         }
-        match self.read_frame()? {
-            Some(frame) => Ok(Some(Timestamped::new(frame, Instant::now()))),
-            None => Ok(None),
-        }
+        Ok(self
+            .read_frame()?
+            .map(|frame| Timestamped::new(frame, Instant::now())))
     }
 
     fn receive_fd_timeout(
@@ -255,22 +274,7 @@ impl ReceiveFd for KvaserChannel {
 impl Filterable for KvaserChannel {
     type Error = KvaserError;
 
-    /// Apply acceptance filters.
-    ///
-    /// CANlib supports only a single (code, mask) pair per frame type (standard /
-    /// extended). When multiple filters of the same type are provided, they are
-    /// merged into one pair: masks are OR-ed (more bits checked) and codes are
-    /// AND-ed (only common bits survive).
-    ///
-    /// **Important**: this merge computes the *intersection* of the filter
-    /// conditions, not the union. If you need to accept IDs 0x100 **and** 0x200,
-    /// a single code/mask pair cannot represent that. In such cases, use a
-    /// permissive mask (e.g., `mask = 0x000` to accept all) and do
-    /// software-level filtering, or provide a single filter whose mask already
-    /// covers the desired range.
     fn set_filters(&mut self, filters: &[Filter]) -> Result<(), KvaserError> {
-        // Process standard and extended filters in a single pass each, without
-        // heap allocation.
         apply_merged_filter(
             &self.lib,
             self.handle,
@@ -290,15 +294,15 @@ impl Filterable for KvaserChannel {
         Ok(())
     }
 
-    /// Remove all acceptance filters (accept all frames).
     fn clear_filters(&mut self) -> Result<(), KvaserError> {
-        // mask = 0 means no bits are checked → every frame passes.
+        // mask = 0 means no bits are checked -> every frame passes.
         for &flag in &[
             CAN_FILTER_SET_CODE_STD,
             CAN_FILTER_SET_MASK_STD,
             CAN_FILTER_SET_CODE_EXT,
             CAN_FILTER_SET_MASK_EXT,
         ] {
+            // SAFETY: canAccept was loaded from canlib; handle is valid
             check_status(unsafe { (self.lib.accept)(self.handle, 0, flag) })?;
         }
         Ok(())
@@ -307,6 +311,7 @@ impl Filterable for KvaserChannel {
 
 /// Merge all filters matching `predicate` into a single (code, mask) pair and
 /// apply it via `canAccept`. No heap allocation.
+#[allow(clippy::cast_possible_wrap, clippy::cast_lossless)] // c_long is i32 on Windows, i64 on Linux
 fn apply_merged_filter(
     lib: &KvaserLibrary,
     handle: i32,
@@ -326,7 +331,9 @@ fn apply_merged_filter(
     }
 
     if let Some((code, mask)) = merged {
+        // SAFETY: canAccept was loaded from canlib; handle is valid
         check_status(unsafe { (lib.accept)(handle, code as c_long, code_flag) })?;
+        // SAFETY: canAccept was loaded from canlib; handle is valid
         check_status(unsafe { (lib.accept)(handle, mask as c_long, mask_flag) })?;
     }
 
@@ -342,6 +349,7 @@ impl BusStatus for KvaserChannel {
 
     fn bus_state(&self) -> Result<BusState, KvaserError> {
         let mut flags: c_ulong = 0;
+        // SAFETY: canReadStatus was loaded from canlib; handle is valid
         check_status(unsafe { (self.lib.read_status)(self.handle, &mut flags) })?;
 
         if flags & CAN_STAT_BUS_OFF != 0 {
@@ -359,9 +367,11 @@ impl BusStatus for KvaserChannel {
         // `overrun` counts frames lost due to receive buffer overflow.
         // It is read to satisfy the CANlib API but is not exposed by `ErrorCounters`.
         let mut overrun: u32 = 0;
+        // SAFETY: canReadErrorCounters was loaded from canlib; handle is valid
         check_status(unsafe {
             (self.lib.read_error_counters)(self.handle, &mut tx_err, &mut rx_err, &mut overrun)
         })?;
+        #[allow(clippy::cast_possible_truncation)] // clamped to 255
         Ok(ErrorCounters {
             transmit: tx_err.min(255) as u8,
             receive: rx_err.min(255) as u8,

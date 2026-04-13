@@ -35,7 +35,7 @@ struct AsyncMockChannel {
 }
 
 impl AsyncMockChannel {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             tx_frames: Vec::new(),
             rx_queue: VecDeque::new(),
@@ -184,7 +184,7 @@ async fn test_async_receive_single_frame() {
     let payload = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE];
     let mut sf_buf = [0u8; 8];
     crate::frame::build_sf(&mut sf_buf, &payload, 0);
-    let sf = can_frame(rx_id(), &sf_buf[..1 + payload.len()]);
+    let sf = can_frame(rx_id(), &sf_buf[..=payload.len()]);
 
     let mut mock = AsyncMockChannel::new();
     mock.rx_queue.push_back(sf);
@@ -257,6 +257,6 @@ async fn test_async_send_fc_wait_limit() {
     assert!(result.is_err(), "expected WaitLimitExceeded error");
     match result.unwrap_err() {
         IsoTpError::WaitLimitExceeded => {} // expected
-        other => panic!("expected WaitLimitExceeded, got: {:?}", other),
+        other => panic!("expected WaitLimitExceeded, got: {other:?}"),
     }
 }

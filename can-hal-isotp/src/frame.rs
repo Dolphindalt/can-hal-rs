@@ -137,6 +137,7 @@ impl<'a> IsoTpFrame<'a> {
 }
 
 /// Build a Single Frame into `buf`. Returns the total frame length.
+#[allow(clippy::cast_possible_truncation)] // protocol-bounded: SF data <= 7 bytes
 pub fn build_sf(buf: &mut [u8], data: &[u8], overhead: usize) -> usize {
     let mut pos = 0;
     if overhead > 0 {
@@ -152,6 +153,7 @@ pub fn build_sf(buf: &mut [u8], data: &[u8], overhead: usize) -> usize {
 /// Build a First Frame into `buf`. Returns the total frame length.
 ///
 /// Copies as many bytes from `data` as fit into a single 8-byte CAN frame.
+#[allow(clippy::cast_possible_truncation)] // protocol-bounded: byte-level fields masked to 8 bits
 pub fn build_ff(buf: &mut [u8], data: &[u8], total_len: usize, overhead: usize) -> usize {
     let mut pos = overhead;
     if total_len <= 0xFFF {
@@ -216,7 +218,7 @@ pub(crate) fn next_fd_dlc(len: usize) -> usize {
         25..=32 => 32,
         33..=48 => 48,
         49..=64 => 64,
-        _ => panic!("next_fd_dlc: len {} exceeds 64", len),
+        _ => panic!("next_fd_dlc: len {len} exceeds 64"),
     }
 }
 
@@ -224,6 +226,7 @@ pub(crate) fn next_fd_dlc(len: usize) -> usize {
 ///
 /// For `data.len() <= 7 - overhead`: classic 1-byte PCI (0x0N).
 /// For `data.len() <= 62 - overhead`: FD 2-byte PCI (0x00, N).
+#[allow(clippy::cast_possible_truncation)] // protocol-bounded: SF FD data <= 62 bytes
 pub fn build_sf_fd(buf: &mut [u8; 64], data: &[u8], overhead: usize) -> usize {
     let max_classic = 7 - overhead;
     let mut pos = overhead;
@@ -243,6 +246,7 @@ pub fn build_sf_fd(buf: &mut [u8; 64], data: &[u8], overhead: usize) -> usize {
 }
 
 /// Build a CAN FD First Frame into `buf`. Always fills 64 bytes.
+#[allow(clippy::cast_possible_truncation)] // protocol-bounded: byte-level fields masked to 8 bits
 pub fn build_ff_fd(buf: &mut [u8; 64], data: &[u8], total_len: usize, overhead: usize) -> usize {
     let mut pos = overhead;
     if total_len <= 0xFFF {
@@ -301,9 +305,9 @@ pub fn build_fc_fd(
 /// - All other values: treated as zero delay
 pub(crate) fn interpret_st_min(st_min: u8) -> Duration {
     match st_min {
-        0x00..=0x7F => Duration::from_millis(st_min as u64),
+        0x00..=0x7F => Duration::from_millis(u64::from(st_min)),
         0xF1..=0xF9 => {
-            let us = (st_min - 0xF0) as u64 * 100;
+            let us = u64::from(st_min - 0xF0) * 100;
             Duration::from_micros(us).max(Duration::from_millis(1))
         }
         _ => Duration::ZERO,

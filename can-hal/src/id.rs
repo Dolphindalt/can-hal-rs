@@ -16,9 +16,9 @@ pub enum CanId {
 impl CanId {
     /// Create a standard (11-bit) CAN ID, returning `None` if the value exceeds 0x7FF.
     #[must_use]
-    pub fn new_standard(id: u16) -> Option<Self> {
+    pub const fn new_standard(id: u16) -> Option<Self> {
         if id <= STANDARD_MAX {
-            Some(CanId::Standard(id))
+            Some(Self::Standard(id))
         } else {
             None
         }
@@ -26,29 +26,33 @@ impl CanId {
 
     /// Create an extended (29-bit) CAN ID, returning `None` if the value exceeds 0x1FFFFFFF.
     #[must_use]
-    pub fn new_extended(id: u32) -> Option<Self> {
+    pub const fn new_extended(id: u32) -> Option<Self> {
         if id <= EXTENDED_MAX {
-            Some(CanId::Extended(id))
+            Some(Self::Extended(id))
         } else {
             None
         }
     }
 
     /// Returns the raw numeric identifier value.
-    pub fn raw(&self) -> u32 {
+    #[must_use]
+    #[allow(clippy::cast_lossless)] // From is not const-stable
+    pub const fn raw(&self) -> u32 {
         match *self {
-            CanId::Standard(id) => id as u32,
-            CanId::Extended(id) => id,
+            Self::Standard(id) => id as u32,
+            Self::Extended(id) => id,
         }
     }
 
     /// Returns `true` if this is a standard (11-bit) identifier.
-    pub fn is_standard(&self) -> bool {
-        matches!(self, CanId::Standard(_))
+    #[must_use]
+    pub const fn is_standard(&self) -> bool {
+        matches!(self, Self::Standard(_))
     }
 
     /// Returns `true` if this is an extended (29-bit) identifier.
-    pub fn is_extended(&self) -> bool {
-        matches!(self, CanId::Extended(_))
+    #[must_use]
+    pub const fn is_extended(&self) -> bool {
+        matches!(self, Self::Extended(_))
     }
 }

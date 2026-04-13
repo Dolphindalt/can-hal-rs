@@ -11,7 +11,7 @@ const CAN_EFF_FLAG: u32 = 0x8000_0000;
 use crate::error::SocketCanError;
 
 /// Convert a can-hal CanId to a socketcan/embedded_can Id.
-pub(crate) fn to_socketcan_id(id: CanId) -> Id {
+pub fn to_socketcan_id(id: CanId) -> Id {
     match id {
         // Unwraps are safe: can-hal already validates the range.
         CanId::Standard(v) => Id::Standard(StandardId::new(v).unwrap()),
@@ -20,7 +20,7 @@ pub(crate) fn to_socketcan_id(id: CanId) -> Id {
 }
 
 /// Convert a socketcan/embedded_can Id to a can-hal CanId.
-pub(crate) fn from_socketcan_id(id: Id) -> CanId {
+pub fn from_socketcan_id(id: Id) -> CanId {
     match id {
         Id::Standard(sid) => CanId::Standard(sid.as_raw()),
         Id::Extended(eid) => CanId::Extended(eid.as_raw()),
@@ -28,21 +28,21 @@ pub(crate) fn from_socketcan_id(id: Id) -> CanId {
 }
 
 /// Convert a can-hal CanFrame to a socketcan CanDataFrame.
-pub(crate) fn to_socketcan_data_frame(frame: &CanFrame) -> Result<CanDataFrame, SocketCanError> {
+pub fn to_socketcan_data_frame(frame: &CanFrame) -> Result<CanDataFrame, SocketCanError> {
     let id = to_socketcan_id(frame.id());
     CanDataFrame::new(id, frame.data())
         .ok_or_else(|| SocketCanError::InvalidFrame("failed to construct CanDataFrame".into()))
 }
 
 /// Convert a socketcan CanDataFrame to a can-hal CanFrame.
-pub(crate) fn from_socketcan_data_frame(frame: &CanDataFrame) -> Result<CanFrame, SocketCanError> {
+pub fn from_socketcan_data_frame(frame: &CanDataFrame) -> Result<CanFrame, SocketCanError> {
     let id = from_socketcan_id(EmbeddedFrame::id(frame));
     CanFrame::new(id, frame.data())
         .ok_or_else(|| SocketCanError::InvalidFrame("failed to construct can-hal CanFrame".into()))
 }
 
 /// Convert a can-hal CanFdFrame to a socketcan CanFdFrame.
-pub(crate) fn to_socketcan_fd_frame(frame: &HalFdFrame) -> Result<ScFdFrame, SocketCanError> {
+pub fn to_socketcan_fd_frame(frame: &HalFdFrame) -> Result<ScFdFrame, SocketCanError> {
     let id = to_socketcan_id(frame.id());
     let mut sc_frame = ScFdFrame::new(id, frame.data()).ok_or_else(|| {
         SocketCanError::InvalidFrame("failed to construct socketcan CanFdFrame".into())
@@ -53,7 +53,7 @@ pub(crate) fn to_socketcan_fd_frame(frame: &HalFdFrame) -> Result<ScFdFrame, Soc
 }
 
 /// Convert a socketcan CanFdFrame to a can-hal CanFdFrame.
-pub(crate) fn from_socketcan_fd_frame(frame: &ScFdFrame) -> Result<HalFdFrame, SocketCanError> {
+pub fn from_socketcan_fd_frame(frame: &ScFdFrame) -> Result<HalFdFrame, SocketCanError> {
     let id = from_socketcan_id(EmbeddedFrame::id(frame));
     HalFdFrame::new(id, frame.data(), frame.is_brs(), frame.is_esi()).ok_or_else(|| {
         SocketCanError::InvalidFrame("failed to construct can-hal CanFdFrame".into())
@@ -61,7 +61,7 @@ pub(crate) fn from_socketcan_fd_frame(frame: &ScFdFrame) -> Result<HalFdFrame, S
 }
 
 /// Convert a socketcan CanAnyFrame to a can-hal Frame.
-pub(crate) fn from_socketcan_any_frame(frame: CanAnyFrame) -> Result<HalFrame, SocketCanError> {
+pub fn from_socketcan_any_frame(frame: CanAnyFrame) -> Result<HalFrame, SocketCanError> {
     match frame {
         CanAnyFrame::Normal(data_frame) => {
             Ok(HalFrame::Can(from_socketcan_data_frame(&data_frame)?))
@@ -77,9 +77,9 @@ pub(crate) fn from_socketcan_any_frame(frame: CanAnyFrame) -> Result<HalFrame, S
 }
 
 /// Convert a can-hal Filter to a socketcan CanFilter.
-pub(crate) fn to_socketcan_filter(filter: &HalFilter) -> CanFilter {
+pub fn to_socketcan_filter(filter: &HalFilter) -> CanFilter {
     let (raw_id, mask) = match filter.id {
-        CanId::Standard(v) => (v as u32, filter.mask),
+        CanId::Standard(v) => (u32::from(v), filter.mask),
         CanId::Extended(v) => (v | CAN_EFF_FLAG, filter.mask | CAN_EFF_FLAG),
     };
     CanFilter::new(raw_id, mask)

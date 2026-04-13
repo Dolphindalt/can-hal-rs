@@ -14,8 +14,8 @@ pub struct AsyncIsoTpChannel<C> {
 
 impl<C> AsyncIsoTpChannel<C> {
     /// Create a new async ISO-TP channel around a CAN channel with the given config.
-    pub fn new(channel: C, config: IsoTpConfig) -> Self {
-        AsyncIsoTpChannel { channel, config }
+    pub const fn new(channel: C, config: IsoTpConfig) -> Self {
+        Self { channel, config }
     }
 
     /// Consume this ISO-TP channel and return the inner CAN channel.
@@ -34,7 +34,7 @@ where
         let overhead = self.config.overhead();
         let max_sf = 7 - overhead;
 
-        if data.len() as u64 > u32::MAX as u64 {
+        if data.len() as u64 > u64::from(u32::MAX) {
             return Err(IsoTpError::PayloadTooLarge);
         }
 
@@ -83,7 +83,7 @@ where
                     tokio::time::sleep(st_min_dur).await;
                 }
 
-                if fc_bs > 0 && block_count >= fc_bs as u16 {
+                if fc_bs > 0 && block_count >= u16::from(fc_bs) {
                     let (new_bs, new_st) = self.wait_for_fc().await?;
                     fc_bs = new_bs;
                     st_min_dur = new_st;
@@ -111,12 +111,10 @@ where
         let mut buf = [0u8; 8];
         self.write_ta(&mut buf);
         let len = frame::build_sf(&mut buf, data, overhead);
-        let send_len = if let Some(pad) = self.config.padding {
+        let send_len = self.config.padding.map_or(len, |pad| {
             buf[len..].fill(pad);
             8
-        } else {
-            len
-        };
+        });
         let frame =
             CanFrame::new(functional_id, &buf[..send_len]).ok_or(IsoTpError::InvalidFrame)?;
         self.channel
@@ -153,7 +151,7 @@ where
                     IsoTpFrame::FirstFrame { total_len, data } => {
                         return Ok((Some(total_len), data.to_vec()));
                     }
-                    _ => continue,
+                    _ => {}
                 }
             }
         })
@@ -161,9 +159,8 @@ where
         .map_err(|_| IsoTpError::Timeout)??;
 
         // Single frame: reassembly is complete.
-        let total_len = match total_len {
-            None => return Ok(collected),
-            Some(len) => len,
+        let Some(total_len) = total_len else {
+            return Ok(collected);
         };
 
         // Multi-frame: send FC and collect CFs
@@ -194,35 +191,31 @@ where
             let parsed = IsoTpFrame::parse(cf_frame.data(), overhead)
                 .map_err(|_| IsoTpError::InvalidFrame)?;
 
-            match parsed {
-                IsoTpFrame::ConsecutiveFrame { sn, data } => {
-                    if sn != expected_sn {
-                        return Err(IsoTpError::SequenceError {
-                            expected: expected_sn,
-                            got: sn,
-                        });
-                    }
-
-                    let bytes_needed = total_len - collected.len();
-                    let take = data.len().min(bytes_needed);
-                    collected.extend_from_slice(&data[..take]);
-
-                    expected_sn = (expected_sn + 1) & 0x0F;
-                    block_count += 1;
-
-                    if self.config.block_size > 0
-                        && block_count >= self.config.block_size as u16
-                        && collected.len() < total_len
-                    {
-                        self.send_fc(FcFlag::ContinueToSend).await?;
-                        block_count = 0;
-                    }
+            if let IsoTpFrame::ConsecutiveFrame { sn, data } = parsed {
+                if sn != expected_sn {
+                    return Err(IsoTpError::SequenceError {
+                        expected: expected_sn,
+                        got: sn,
+                    });
                 }
-                _ => {
-                    // Per ISO 15765-2, unexpected PCI types during
-                    // CF reassembly are silently ignored.
-                    continue;
+
+                let bytes_needed = total_len - collected.len();
+                let take = data.len().min(bytes_needed);
+                collected.extend_from_slice(&data[..take]);
+
+                expected_sn = (expected_sn + 1) & 0x0F;
+                block_count += 1;
+
+                if self.config.block_size > 0
+                    && block_count >= u16::from(self.config.block_size)
+                    && collected.len() < total_len
+                {
+                    self.send_fc(FcFlag::ContinueToSend).await?;
+                    block_count = 0;
                 }
+            } else {
+                // Per ISO 15765-2, unexpected PCI types during
+                // CF reassembly are silently ignored.
             }
         }
 
@@ -250,12 +243,13 @@ where
                 let isotp = IsoTpFrame::parse(can_frame.data(), overhead)
                     .map_err(|_| IsoTpError::InvalidFrame)?;
 
-                match isotp {
-                    IsoTpFrame::FlowControl {
-                        flag,
-                        block_size,
-                        st_min,
-                    } => match flag {
+                if let IsoTpFrame::FlowControl {
+                    flag,
+                    block_size,
+                    st_min,
+                } = isotp
+                {
+                    match flag {
                         FcFlag::ContinueToSend => {
                             let st_dur = interpret_st_min(st_min);
                             return Ok((block_size, st_dur));
@@ -267,11 +261,9 @@ where
                                     return Err(IsoTpError::WaitLimitExceeded);
                                 }
                             }
-                            continue;
                         }
                         FcFlag::Overflow => return Err(IsoTpError::BufferOverflow),
-                    },
-                    _ => continue,
+                    }
                 }
             }
         })
@@ -300,12 +292,10 @@ where
         buf: &mut [u8; 8],
         len: usize,
     ) -> Result<(), IsoTpError<E>> {
-        let send_len = if let Some(pad) = self.config.padding {
+        let send_len = self.config.padding.map_or(len, |pad| {
             buf[len..].fill(pad);
             8
-        } else {
-            len
-        };
+        });
         self.transmit_frame(&buf[..send_len]).await
     }
 

@@ -86,8 +86,8 @@ mod tests {
     }
 
     impl MockChannel {
-        fn new() -> Self {
-            MockChannel {
+        const fn new() -> Self {
+            Self {
                 tx_log: Vec::new(),
                 rx_queue: VecDeque::new(),
             }
@@ -333,7 +333,7 @@ mod tests {
         frame: &CanFrame,
     ) -> Result<Option<CanFrame>, E> {
         channel.transmit(frame)?;
-        Ok(channel.try_receive()?.map(|ts| ts.into_frame()))
+        Ok(channel.try_receive()?.map(Timestamped::into_frame))
     }
 
     #[test]

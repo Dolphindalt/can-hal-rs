@@ -22,7 +22,7 @@ use crate::library::PcanLibrary;
 /// Created by [`PcanChannel`](crate::channel::PcanChannel) during
 /// initialization. The event is used to efficiently block until a CAN message
 /// is available, avoiding busy-wait polling.
-pub(crate) struct ReceiveEvent {
+pub struct ReceiveEvent {
     lib: Arc<PcanLibrary>,
     handle: u16,
     #[cfg(target_os = "windows")]
@@ -33,7 +33,7 @@ pub(crate) struct ReceiveEvent {
 
 impl ReceiveEvent {
     /// Create and register a receive event for the given PCAN channel.
-    pub(crate) fn new(lib: Arc<PcanLibrary>, handle: u16) -> Result<Self, PcanError> {
+    pub fn new(lib: Arc<PcanLibrary>, handle: u16) -> Result<Self, PcanError> {
         #[cfg(target_os = "windows")]
         {
             Self::new_windows(lib, handle)
@@ -48,7 +48,7 @@ impl ReceiveEvent {
     ///
     /// Returns `true` if the event was signaled (a message may be available),
     /// `false` if the wait timed out. `None` timeout means wait indefinitely.
-    pub(crate) fn wait(&self, timeout: Option<Duration>) -> Result<bool, PcanError> {
+    pub fn wait(&self, timeout: Option<Duration>) -> Result<bool, PcanError> {
         #[cfg(target_os = "windows")]
         {
             self.wait_windows(timeout)
@@ -69,7 +69,7 @@ impl ReceiveEvent {
         use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
         use windows_sys::Win32::System::Threading::CreateEventW;
 
-        // Create an auto-reset, initially non-signaled event.
+        // SAFETY: CreateEventW is a safe Windows API call with valid null pointers
         let event_handle = unsafe { CreateEventW(ptr::null(), 0, 0, ptr::null()) };
         if event_handle == INVALID_HANDLE_VALUE || event_handle.is_null() {
             return Err(PcanError::Platform("CreateEventW failed".into()));
@@ -77,22 +77,25 @@ impl ReceiveEvent {
 
         // Register the event with PCAN.
         let mut ev = event_handle;
+        #[allow(clippy::cast_possible_truncation)] // size_of::<isize>() fits in u32
+        // SAFETY: set_value was loaded from PCANBasic; handle is valid; ev is stack-allocated
         let status = unsafe {
             (lib.set_value)(
                 handle,
                 ffi::PCAN_RECEIVE_EVENT,
-                &mut ev as *mut _ as *mut std::ffi::c_void,
+                std::ptr::from_mut(&mut ev).cast::<std::ffi::c_void>(),
                 std::mem::size_of::<isize>() as u32,
             )
         };
         if status != ffi::PCAN_ERROR_OK {
+            // SAFETY: event_handle was successfully created above
             unsafe {
                 windows_sys::Win32::Foundation::CloseHandle(event_handle);
             }
             return Err(PcanError::Pcan(PcanStatus(status)));
         }
 
-        Ok(ReceiveEvent {
+        Ok(Self {
             lib,
             handle,
             event_handle,
@@ -104,11 +107,12 @@ impl ReceiveEvent {
         use windows_sys::Win32::Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT};
         use windows_sys::Win32::System::Threading::WaitForSingleObject;
 
-        let ms = match timeout {
-            Some(d) => d.as_millis().min(u32::MAX as u128) as u32,
-            None => 0xFFFF_FFFF, // INFINITE
-        };
+        #[allow(clippy::cast_possible_truncation)] // clamped to u32::MAX
+        let ms = timeout.map_or(0xFFFF_FFFF, |d| {
+            d.as_millis().min(u128::from(u32::MAX)) as u32
+        });
 
+        // SAFETY: event_handle was obtained from CreateEventW
         let result = unsafe { WaitForSingleObject(self.event_handle, ms) };
         match result {
             WAIT_OBJECT_0 => Ok(true),
@@ -126,25 +130,27 @@ impl ReceiveEvent {
     #[cfg(not(target_os = "windows"))]
     fn new_unix(lib: Arc<PcanLibrary>, handle: u16) -> Result<Self, PcanError> {
         let mut fd: i32 = 0;
+        #[allow(clippy::cast_possible_truncation)] // size_of::<i32>() == 4, fits in u32
+        // SAFETY: get_value() was loaded from PCANBasic and handle is valid.
+        // fd points to a valid stack-allocated i32 with correct buffer length.
         let status = unsafe {
             (lib.get_value)(
                 handle,
                 ffi::PCAN_RECEIVE_EVENT,
-                &mut fd as *mut _ as *mut std::ffi::c_void,
+                std::ptr::from_mut(&mut fd).cast::<std::ffi::c_void>(),
                 std::mem::size_of::<i32>() as u32,
             )
         };
         check_status(status)?;
 
-        Ok(ReceiveEvent { lib, handle, fd })
+        Ok(Self { lib, handle, fd })
     }
 
     #[cfg(not(target_os = "windows"))]
     fn wait_unix(&self, timeout: Option<Duration>) -> Result<bool, PcanError> {
-        let timeout_ms = match timeout {
-            Some(d) => d.as_millis().min(i32::MAX as u128) as i32,
-            None => -1, // infinite
-        };
+        // i32::MAX as u128 is always lossless; the final `as i32` is bounded by .min().
+        #[allow(clippy::cast_possible_truncation)]
+        let timeout_ms = timeout.map_or(-1, |d| d.as_millis().min(i32::MAX as u128) as i32);
 
         let mut pfd = libc::pollfd {
             fd: self.fd,
@@ -152,16 +158,16 @@ impl ReceiveEvent {
             revents: 0,
         };
 
+        // SAFETY: poll() is called with a valid pointer to a stack-allocated pollfd
+        // and nfds=1, which matches the single-element array.
         let ret = unsafe { libc::poll(&mut pfd, 1, timeout_ms) };
-        if ret < 0 {
-            Err(PcanError::Platform(format!(
+        match ret {
+            _ if ret < 0 => Err(PcanError::Platform(format!(
                 "poll() failed: {}",
                 std::io::Error::last_os_error()
-            )))
-        } else if ret == 0 {
-            Ok(false)
-        } else {
-            Ok(true)
+            ))),
+            0 => Ok(false),
+            _ => Ok(true),
         }
     }
 }
@@ -176,11 +182,17 @@ impl Drop for ReceiveEvent {
         {
             // Deregister the event from PCAN, then close the handle.
             let mut zero: *mut std::ffi::c_void = std::ptr::null_mut();
+            #[allow(
+                clippy::multiple_unsafe_ops_per_block,
+                clippy::let_underscore_must_use,
+                clippy::cast_possible_truncation
+            )]
+            // SAFETY: set_value and CloseHandle cleanup; errors deliberately ignored in Drop
             unsafe {
                 let _ = (self.lib.set_value)(
                     self.handle,
                     ffi::PCAN_RECEIVE_EVENT,
-                    &mut zero as *mut _ as *mut std::ffi::c_void,
+                    std::ptr::from_mut(&mut zero).cast::<std::ffi::c_void>(),
                     std::mem::size_of::<isize>() as u32,
                 );
                 windows_sys::Win32::Foundation::CloseHandle(self.event_handle);

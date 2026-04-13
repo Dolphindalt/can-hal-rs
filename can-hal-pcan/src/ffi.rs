@@ -24,7 +24,7 @@ pub const PCAN_LANBUS1: u16 = 0x801;
 ///
 /// `bus_type`: 0 = USB, 1 = PCI, 2 = LAN.
 /// Returns `None` if the index is out of range (must be 0..=15).
-pub fn pcan_handle(bus_type: u8, index: u16) -> Option<u16> {
+pub const fn pcan_handle(bus_type: u8, index: u16) -> Option<u16> {
     if index > 15 {
         return None;
     }
@@ -53,7 +53,7 @@ pub const PCAN_BAUD_5K: u16 = 0x7F7F;
 
 /// Map a standard bitrate in Hz to a `PCAN_BAUD_*` constant.
 /// Returns `None` for unsupported bitrates.
-pub fn bitrate_to_pcan(hz: u32) -> Option<u16> {
+pub const fn bitrate_to_pcan(hz: u32) -> Option<u16> {
     match hz {
         1_000_000 => Some(PCAN_BAUD_1M),
         800_000 => Some(PCAN_BAUD_800K),

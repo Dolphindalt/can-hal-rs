@@ -73,12 +73,12 @@ pub enum PcanError {
 impl fmt::Display for PcanError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            PcanError::LibraryLoad(e) => write!(f, "failed to load PCAN-Basic library: {e}"),
-            PcanError::Pcan(status) => write!(f, "{status}"),
-            PcanError::InvalidFrame(msg) => write!(f, "invalid frame: {msg}"),
-            PcanError::InvalidChannel(idx) => write!(f, "invalid PCAN channel index: {idx}"),
-            PcanError::UnsupportedBitrate(br) => write!(f, "unsupported bitrate: {br} bps"),
-            PcanError::Platform(msg) => write!(f, "platform error: {msg}"),
+            Self::LibraryLoad(e) => write!(f, "failed to load PCAN-Basic library: {e}"),
+            Self::Pcan(status) => write!(f, "{status}"),
+            Self::InvalidFrame(msg) => write!(f, "invalid frame: {msg}"),
+            Self::InvalidChannel(idx) => write!(f, "invalid PCAN channel index: {idx}"),
+            Self::UnsupportedBitrate(br) => write!(f, "unsupported bitrate: {br} bps"),
+            Self::Platform(msg) => write!(f, "platform error: {msg}"),
         }
     }
 }
@@ -86,7 +86,7 @@ impl fmt::Display for PcanError {
 impl std::error::Error for PcanError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            PcanError::LibraryLoad(e) => Some(e),
+            Self::LibraryLoad(e) => Some(e),
             _ => None,
         }
     }
@@ -94,12 +94,12 @@ impl std::error::Error for PcanError {
 
 impl From<libloading::Error> for PcanError {
     fn from(e: libloading::Error) -> Self {
-        PcanError::LibraryLoad(e)
+        Self::LibraryLoad(e)
     }
 }
 
 /// Check a PCAN status code and convert non-OK to `PcanError::Pcan`.
-pub(crate) fn check_status(status: u32) -> Result<(), PcanError> {
+pub(crate) const fn check_status(status: u32) -> Result<(), PcanError> {
     if status == ffi::PCAN_ERROR_OK {
         Ok(())
     } else {

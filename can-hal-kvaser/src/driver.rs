@@ -37,100 +37,33 @@ pub struct BusParamsFd {
 ///
 /// These assume an 80 MHz CAN clock (Kvaser U100 and most modern Kvaser
 /// adapters). The hardware derives the prescaler from `freq / (1 + tseg1 + tseg2)`.
-fn default_nominal_params(bitrate_hz: u32) -> BusParams {
+const fn default_nominal_params(_bitrate_hz: u32) -> BusParams {
     // 20 TQ (1 + tseg1 + tseg2), 70% sample point, SJW=4 for good
     // resynchronization tolerance. These values are verified on Kvaser U100
     // and provide broad compatibility with other CAN FD adapters.
-    match bitrate_hz {
-        1_000_000 => BusParams {
-            tseg1: 13,
-            tseg2: 6,
-            sjw: 4,
-            no_samp: 1,
-            sync_mode: 0,
-        }, // 70.0%
-        500_000 => BusParams {
-            tseg1: 13,
-            tseg2: 6,
-            sjw: 4,
-            no_samp: 1,
-            sync_mode: 0,
-        }, // 70.0%
-        250_000 => BusParams {
-            tseg1: 13,
-            tseg2: 6,
-            sjw: 4,
-            no_samp: 1,
-            sync_mode: 0,
-        }, // 70.0%
-        125_000 => BusParams {
-            tseg1: 13,
-            tseg2: 6,
-            sjw: 4,
-            no_samp: 1,
-            sync_mode: 0,
-        }, // 70.0%
-        100_000 => BusParams {
-            tseg1: 13,
-            tseg2: 6,
-            sjw: 4,
-            no_samp: 1,
-            sync_mode: 0,
-        }, // 70.0%
-        83_333 => BusParams {
-            tseg1: 13,
-            tseg2: 6,
-            sjw: 4,
-            no_samp: 1,
-            sync_mode: 0,
-        }, // 70.0%
-        50_000 => BusParams {
-            tseg1: 13,
-            tseg2: 6,
-            sjw: 4,
-            no_samp: 1,
-            sync_mode: 0,
-        }, // 70.0%
-        // Fallback: 20 TQ, 70% sample point.
-        _ => BusParams {
-            tseg1: 13,
-            tseg2: 6,
-            sjw: 4,
-            no_samp: 1,
-            sync_mode: 0,
-        }, // 70.0%
+    BusParams {
+        tseg1: 13,
+        tseg2: 6,
+        sjw: 4,
+        no_samp: 1,
+        sync_mode: 0,
     }
 }
 
 /// Default FD data-phase timing parameters for common data bitrates.
-fn default_fd_params(data_bitrate_hz: u32) -> BusParamsFd {
+const fn default_fd_params(data_bitrate_hz: u32) -> BusParamsFd {
     match data_bitrate_hz {
         5_000_000 => BusParamsFd {
             tseg1: 5,
             tseg2: 2,
             sjw: 2,
         }, // 75.0%
-        4_000_000 => BusParamsFd {
-            tseg1: 7,
-            tseg2: 2,
-            sjw: 2,
-        }, // 80.0%
-        2_000_000 => BusParamsFd {
-            tseg1: 7,
-            tseg2: 2,
-            sjw: 2,
-        }, // 80.0%
-        1_000_000 => BusParamsFd {
-            tseg1: 7,
-            tseg2: 2,
-            sjw: 2,
-        }, // 80.0%
-        // Fallback: 10 TQ, 80% sample point
+        // 10 TQ, 80% sample point
         _ => BusParamsFd {
             tseg1: 7,
             tseg2: 2,
             sjw: 2,
-        }, // 80.0%
+        },
     }
 }
 
@@ -154,14 +87,14 @@ pub struct KvaserDriver {
 impl KvaserDriver {
     /// Load CANlib from the default system location.
     pub fn new() -> Result<Self, KvaserError> {
-        Ok(KvaserDriver {
+        Ok(Self {
             lib: KvaserLibrary::load()?,
         })
     }
 
     /// Load CANlib from a custom path.
     pub fn with_library_path(path: &str) -> Result<Self, KvaserError> {
-        Ok(KvaserDriver {
+        Ok(Self {
             lib: KvaserLibrary::load_from(path)?,
         })
     }
@@ -173,6 +106,7 @@ impl Driver for KvaserDriver {
     type Error = KvaserError;
 
     /// Begin configuring the channel at the given 0-based index.
+    #[allow(clippy::cast_possible_wrap)] // channel index is small, fits in i32
     fn channel(&self, index: u32) -> Result<KvaserChannelBuilder, KvaserError> {
         Ok(KvaserChannelBuilder {
             lib: Arc::clone(&self.lib),
@@ -213,7 +147,8 @@ impl KvaserChannelBuilder {
     ///     .bus_params(BusParams { tseg1: 13, tseg2: 2, sjw: 2, no_samp: 1, sync_mode: 0 })
     ///     .connect()?;
     /// ```
-    pub fn bus_params(mut self, params: BusParams) -> Self {
+    #[must_use]
+    pub const fn bus_params(mut self, params: BusParams) -> Self {
         self.custom_params = Some(params);
         self
     }
@@ -221,7 +156,8 @@ impl KvaserChannelBuilder {
     /// Set explicit FD data-phase bus timing parameters.
     ///
     /// Overrides the defaults chosen by [`data_bitrate()`](ChannelBuilder::data_bitrate).
-    pub fn bus_params_fd(mut self, params: BusParamsFd) -> Self {
+    #[must_use]
+    pub const fn bus_params_fd(mut self, params: BusParamsFd) -> Self {
         self.custom_fd_params = Some(params);
         self
     }
@@ -247,6 +183,7 @@ impl ChannelBuilder for KvaserChannelBuilder {
         ))
     }
 
+    #[allow(clippy::cast_possible_wrap, clippy::cast_lossless)] // c_long is i32 on Windows, i64 on Linux
     fn connect(self) -> Result<KvaserChannel, KvaserError> {
         let bitrate_hz = self.bitrate_hz.ok_or_else(|| {
             KvaserError::NotSupported("bitrate() must be called before connect()".into())
@@ -257,6 +194,7 @@ impl ChannelBuilder for KvaserChannelBuilder {
             flags |= CAN_OPEN_CAN_FD;
         }
 
+        // SAFETY: canOpenChannel was loaded from canlib
         let handle = unsafe { (self.lib.open_channel)(self.channel_index, flags) };
         if handle < 0 {
             return Err(KvaserError::Canlib(crate::error::KvaserStatus(handle)));
@@ -279,6 +217,7 @@ impl ChannelBuilder for KvaserChannelBuilder {
                 let use_legacy = if let Some(set_fd_tq) = self.lib.set_bus_params_fd_tq {
                     let nominal_tq = to_nominal_tq(bitrate_hz, &params)?;
                     let data_tq = to_data_tq(fd_hz, &fd_params)?;
+                    // SAFETY: canSetBusParamsFdTq was loaded from canlib; handle is valid
                     let status = unsafe { (set_fd_tq)(handle, nominal_tq, data_tq) };
                     if status >= 0 {
                         false // TQ succeeded
@@ -295,7 +234,7 @@ impl ChannelBuilder for KvaserChannelBuilder {
                 };
 
                 if use_legacy {
-                    // Fallback: canSetBusParams + canSetBusParamsFd.
+                    // SAFETY: canSetBusParams was loaded from canlib; handle is valid
                     check_status(unsafe {
                         (self.lib.set_bus_params)(
                             handle,
@@ -307,6 +246,7 @@ impl ChannelBuilder for KvaserChannelBuilder {
                             params.sync_mode,
                         )
                     })?;
+                    // SAFETY: canSetBusParamsFd was loaded from canlib; handle is valid
                     check_status(unsafe {
                         (self.lib.set_bus_params_fd)(
                             handle,
@@ -318,7 +258,7 @@ impl ChannelBuilder for KvaserChannelBuilder {
                     })?;
                 }
             } else {
-                // Classic CAN — canSetBusParams works on all platforms.
+                // SAFETY: canSetBusParams was loaded from canlib; handle is valid
                 check_status(unsafe {
                     (self.lib.set_bus_params)(
                         handle,
@@ -332,6 +272,7 @@ impl ChannelBuilder for KvaserChannelBuilder {
                 })?;
             }
 
+            // SAFETY: canBusOn was loaded from canlib; handle is valid
             check_status(unsafe { (self.lib.bus_on)(handle) })?;
 
             let event = ReceiveEvent::new(&self.lib, handle)?;
@@ -345,6 +286,7 @@ impl ChannelBuilder for KvaserChannelBuilder {
         })();
 
         if result.is_err() {
+            // SAFETY: canClose was loaded from canlib; handle is valid
             unsafe { (self.lib.close)(handle) };
         }
 
@@ -361,6 +303,7 @@ impl ChannelBuilder for KvaserChannelBuilder {
 /// For the nominal (arbitration) phase we set `prop = 0` and `phase1 = tseg1`.
 /// This is valid for short-cable USB setups; the propagation segment only
 /// matters on long buses where signal delay is significant.
+#[allow(clippy::cast_possible_wrap)] // u32 timing values fit in i32
 fn to_nominal_tq(bitrate_hz: u32, p: &BusParams) -> Result<KvBusParamsTq, KvaserError> {
     let tq = 1 + p.tseg1 + p.tseg2;
     let prescaler = compute_prescaler(bitrate_hz, tq)?;
@@ -377,6 +320,7 @@ fn to_nominal_tq(bitrate_hz: u32, p: &BusParams) -> Result<KvBusParamsTq, Kvaser
 /// Convert FD data-phase bus parameters + bitrate to a `KvBusParamsTq`.
 ///
 /// The data phase requires `prop = 0`.
+#[allow(clippy::cast_possible_wrap)] // u32 timing values fit in i32
 fn to_data_tq(bitrate_hz: u32, p: &BusParamsFd) -> Result<KvBusParamsTq, KvaserError> {
     let tq = 1 + p.tseg1 + p.tseg2;
     let prescaler = compute_prescaler(bitrate_hz, tq)?;
@@ -394,13 +338,14 @@ fn to_data_tq(bitrate_hz: u32, p: &BusParamsFd) -> Result<KvBusParamsTq, KvaserE
 ///
 /// Returns an error if the bitrate cannot be achieved exactly with the given
 /// TQ count at an 80 MHz clock.
+#[allow(clippy::cast_possible_truncation)] // prescaler fits in i32 for valid CAN bitrates
 fn compute_prescaler(bitrate_hz: u32, tq: u32) -> Result<i32, KvaserError> {
-    let bit_time = (bitrate_hz as u64) * (tq as u64);
-    if bit_time == 0 || (CLOCK_HZ as u64) % bit_time != 0 {
+    let bit_time = u64::from(bitrate_hz) * u64::from(tq);
+    if bit_time == 0 || u64::from(CLOCK_HZ) % bit_time != 0 {
         return Err(KvaserError::NotSupported(format!(
             "cannot achieve {bitrate_hz} Hz with {tq} TQ at {CLOCK_HZ} Hz clock \
              (prescaler would be non-integer)"
         )));
     }
-    Ok((CLOCK_HZ as u64 / bit_time) as i32)
+    Ok((u64::from(CLOCK_HZ) / bit_time) as i32)
 }
