@@ -7,7 +7,8 @@ use crate::ffi::{
 };
 
 /// Convert a `CanId` to a raw CANlib id and message flag.
-pub(crate) fn to_canlib_id(id: CanId) -> (u32, u32) {
+#[allow(clippy::cast_lossless)] // From is not const-stable
+pub const fn to_canlib_id(id: CanId) -> (u32, u32) {
     match id {
         CanId::Standard(v) => (v as u32, CAN_MSG_STD),
         CanId::Extended(v) => (v, CAN_MSG_EXT),
@@ -15,7 +16,7 @@ pub(crate) fn to_canlib_id(id: CanId) -> (u32, u32) {
 }
 
 /// Reconstruct a `CanId` from a raw CANlib id and message flags.
-pub(crate) fn from_canlib_id(raw_id: u32, flags: u32) -> Result<CanId, KvaserError> {
+pub fn from_canlib_id(raw_id: u32, flags: u32) -> Result<CanId, KvaserError> {
     if flags & CAN_MSG_EXT != 0 {
         CanId::new_extended(raw_id).ok_or_else(|| {
             KvaserError::InvalidFrame(format!("extended ID out of range: {raw_id:#x}"))
@@ -26,6 +27,7 @@ pub(crate) fn from_canlib_id(raw_id: u32, flags: u32) -> Result<CanId, KvaserErr
                 "standard ID out of range: {raw_id:#x}"
             )));
         }
+        #[allow(clippy::cast_possible_truncation)] // validated above: raw_id <= 0x7FF
         CanId::new_standard(raw_id as u16).ok_or_else(|| {
             KvaserError::InvalidFrame(format!("standard ID out of range: {raw_id:#x}"))
         })
@@ -36,7 +38,7 @@ pub(crate) fn from_canlib_id(raw_id: u32, flags: u32) -> Result<CanId, KvaserErr
 ///
 /// Returns `Ok(None)` for RTR frames and error frames, which are not represented
 /// in the can-hal frame model.
-pub(crate) fn from_canlib_frame(
+pub fn from_canlib_frame(
     raw_id: u32,
     data: &[u8; 64],
     dlc: u32,
@@ -102,7 +104,7 @@ mod tests {
                 assert_eq!(f.id(), id);
                 assert_eq!(f.data(), &[0x01, 0x02, 0x03]);
             }
-            _ => panic!("expected classic frame"),
+            Frame::Fd(_) => panic!("expected classic frame"),
         }
     }
 
@@ -123,7 +125,7 @@ mod tests {
                 assert!(f.brs());
                 assert!(!f.esi());
             }
-            _ => panic!("expected FD frame"),
+            Frame::Can(_) => panic!("expected FD frame"),
         }
     }
 

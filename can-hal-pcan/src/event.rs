@@ -22,7 +22,7 @@ use crate::library::PcanLibrary;
 /// Created by [`PcanChannel`](crate::channel::PcanChannel) during
 /// initialization. The event is used to efficiently block until a CAN message
 /// is available, avoiding busy-wait polling.
-pub(crate) struct ReceiveEvent {
+pub struct ReceiveEvent {
     lib: Arc<PcanLibrary>,
     handle: u16,
     #[cfg(target_os = "windows")]
@@ -33,7 +33,7 @@ pub(crate) struct ReceiveEvent {
 
 impl ReceiveEvent {
     /// Create and register a receive event for the given PCAN channel.
-    pub(crate) fn new(lib: Arc<PcanLibrary>, handle: u16) -> Result<Self, PcanError> {
+    pub fn new(lib: Arc<PcanLibrary>, handle: u16) -> Result<Self, PcanError> {
         #[cfg(target_os = "windows")]
         {
             Self::new_windows(lib, handle)
@@ -48,7 +48,7 @@ impl ReceiveEvent {
     ///
     /// Returns `true` if the event was signaled (a message may be available),
     /// `false` if the wait timed out. `None` timeout means wait indefinitely.
-    pub(crate) fn wait(&self, timeout: Option<Duration>) -> Result<bool, PcanError> {
+    pub fn wait(&self, timeout: Option<Duration>) -> Result<bool, PcanError> {
         #[cfg(target_os = "windows")]
         {
             self.wait_windows(timeout)
@@ -126,25 +126,27 @@ impl ReceiveEvent {
     #[cfg(not(target_os = "windows"))]
     fn new_unix(lib: Arc<PcanLibrary>, handle: u16) -> Result<Self, PcanError> {
         let mut fd: i32 = 0;
+        #[allow(clippy::cast_possible_truncation)] // size_of::<i32>() == 4, fits in u32
+        // SAFETY: get_value() was loaded from PCANBasic and handle is valid.
+        // fd points to a valid stack-allocated i32 with correct buffer length.
         let status = unsafe {
             (lib.get_value)(
                 handle,
                 ffi::PCAN_RECEIVE_EVENT,
-                &mut fd as *mut _ as *mut std::ffi::c_void,
+                std::ptr::from_mut(&mut fd).cast::<std::ffi::c_void>(),
                 std::mem::size_of::<i32>() as u32,
             )
         };
         check_status(status)?;
 
-        Ok(ReceiveEvent { lib, handle, fd })
+        Ok(Self { lib, handle, fd })
     }
 
     #[cfg(not(target_os = "windows"))]
     fn wait_unix(&self, timeout: Option<Duration>) -> Result<bool, PcanError> {
-        let timeout_ms = match timeout {
-            Some(d) => d.as_millis().min(i32::MAX as u128) as i32,
-            None => -1, // infinite
-        };
+        // i32::MAX as u128 is always lossless; the final `as i32` is bounded by .min().
+        #[allow(clippy::cast_possible_truncation)]
+        let timeout_ms = timeout.map_or(-1, |d| d.as_millis().min(i32::MAX as u128) as i32);
 
         let mut pfd = libc::pollfd {
             fd: self.fd,
@@ -152,16 +154,16 @@ impl ReceiveEvent {
             revents: 0,
         };
 
+        // SAFETY: poll() is called with a valid pointer to a stack-allocated pollfd
+        // and nfds=1, which matches the single-element array.
         let ret = unsafe { libc::poll(&mut pfd, 1, timeout_ms) };
-        if ret < 0 {
-            Err(PcanError::Platform(format!(
+        match ret {
+            _ if ret < 0 => Err(PcanError::Platform(format!(
                 "poll() failed: {}",
                 std::io::Error::last_os_error()
-            )))
-        } else if ret == 0 {
-            Ok(false)
-        } else {
-            Ok(true)
+            ))),
+            0 => Ok(false),
+            _ => Ok(true),
         }
     }
 }

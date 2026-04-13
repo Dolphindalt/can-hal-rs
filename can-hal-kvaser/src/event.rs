@@ -1,7 +1,7 @@
 //! Platform-specific receive event handling via `canIoCtl`.
 //!
-//! On Linux:   `canIoCtl(canIOCTL_GET_EVENTHANDLE)` returns a file descriptor → `poll()`.
-//! On Windows: `canIoCtl(canIOCTL_GET_EVENTHANDLE)` returns a `HANDLE`         → `WaitForSingleObject`.
+//! On Linux:   `canIoCtl(canIOCTL_GET_EVENTHANDLE)` returns a file descriptor -> `poll()`.
+//! On Windows: `canIoCtl(canIOCTL_GET_EVENTHANDLE)` returns a `HANDLE`         -> `WaitForSingleObject`.
 //!
 //! The event handle / fd is owned by the CANlib driver and must NOT be closed.
 
@@ -16,7 +16,7 @@ use crate::library::KvaserLibrary;
 ///
 /// Created once per `KvaserChannel` during `connect()`. Used to efficiently
 /// block until a CAN message is available, avoiding busy-wait polling.
-pub(crate) struct ReceiveEvent {
+pub struct ReceiveEvent {
     #[cfg(not(target_os = "windows"))]
     fd: i32,
     #[cfg(target_os = "windows")]
@@ -25,7 +25,7 @@ pub(crate) struct ReceiveEvent {
 
 impl ReceiveEvent {
     /// Obtain the receive event for the given open channel handle.
-    pub(crate) fn new(lib: &KvaserLibrary, handle: i32) -> Result<Self, KvaserError> {
+    pub fn new(lib: &KvaserLibrary, handle: i32) -> Result<Self, KvaserError> {
         #[cfg(not(target_os = "windows"))]
         {
             Self::new_unix(lib, handle)
@@ -40,7 +40,7 @@ impl ReceiveEvent {
     ///
     /// Returns `true` if the event was signalled, `false` on timeout.
     /// `None` timeout waits indefinitely.
-    pub(crate) fn wait(&self, timeout: Option<Duration>) -> Result<bool, KvaserError> {
+    pub fn wait(&self, timeout: Option<Duration>) -> Result<bool, KvaserError> {
         #[cfg(not(target_os = "windows"))]
         {
             self.wait_unix(timeout)
@@ -58,24 +58,26 @@ impl ReceiveEvent {
     #[cfg(not(target_os = "windows"))]
     fn new_unix(lib: &KvaserLibrary, handle: i32) -> Result<Self, KvaserError> {
         let mut fd: i32 = 0;
+        // SAFETY: io_ctl was loaded from canlib; handle is valid; fd is a valid stack-allocated i32
         let status = unsafe {
             (lib.io_ctl)(
                 handle,
                 CAN_IOCTL_GET_EVENTHANDLE,
-                &mut fd as *mut i32 as *mut c_void,
-                std::mem::size_of::<i32>() as u32,
+                std::ptr::from_mut(&mut fd).cast::<c_void>(),
+                #[allow(clippy::cast_possible_truncation)]
+                {
+                    std::mem::size_of::<i32>() as u32
+                },
             )
         };
         crate::error::check_status(status)?;
-        Ok(ReceiveEvent { fd })
+        Ok(Self { fd })
     }
 
     #[cfg(not(target_os = "windows"))]
+    #[allow(clippy::cast_possible_truncation)] // timeout_ms clamped to i32::MAX
     fn wait_unix(&self, timeout: Option<Duration>) -> Result<bool, KvaserError> {
-        let timeout_ms = match timeout {
-            Some(d) => d.as_millis().min(i32::MAX as u128) as i32,
-            None => -1, // infinite
-        };
+        let timeout_ms = timeout.map_or(-1, |d| d.as_millis().min(i32::MAX as u128) as i32);
 
         let mut pfd = libc::pollfd {
             fd: self.fd,
@@ -83,6 +85,7 @@ impl ReceiveEvent {
             revents: 0,
         };
 
+        // SAFETY: pfd is a valid stack-allocated pollfd; nfds=1
         let ret = unsafe { libc::poll(&mut pfd, 1, timeout_ms) };
         if ret < 0 {
             Err(KvaserError::Platform(format!(
@@ -101,16 +104,20 @@ impl ReceiveEvent {
     #[cfg(target_os = "windows")]
     fn new_windows(lib: &KvaserLibrary, handle: i32) -> Result<Self, KvaserError> {
         let mut event_handle: *mut c_void = std::ptr::null_mut();
+        // SAFETY: io_ctl was loaded from canlib; handle is valid; event_handle is stack-allocated
         let status = unsafe {
             (lib.io_ctl)(
                 handle,
                 CAN_IOCTL_GET_EVENTHANDLE,
-                &mut event_handle as *mut _ as *mut c_void,
-                std::mem::size_of::<*mut c_void>() as u32,
+                std::ptr::from_mut(&mut event_handle).cast::<c_void>(),
+                #[allow(clippy::cast_possible_truncation)]
+                {
+                    std::mem::size_of::<*mut c_void>() as u32
+                },
             )
         };
         crate::error::check_status(status)?;
-        Ok(ReceiveEvent { event_handle })
+        Ok(Self { event_handle })
     }
 
     #[cfg(target_os = "windows")]
@@ -123,6 +130,7 @@ impl ReceiveEvent {
             None => 0xFFFF_FFFF, // INFINITE
         };
 
+        // SAFETY: event_handle was obtained from canIoCtl
         let result = unsafe { WaitForSingleObject(self.event_handle, ms) };
         match result {
             WAIT_OBJECT_0 => Ok(true),

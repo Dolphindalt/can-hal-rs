@@ -45,13 +45,13 @@ impl PcanDriver {
     /// Linux).
     pub fn new() -> Result<Self, PcanError> {
         let lib = PcanLibrary::load()?;
-        Ok(PcanDriver { lib })
+        Ok(Self { lib })
     }
 
     /// Create a new PCAN driver by loading the library from a custom path.
     pub fn with_library_path(path: &str) -> Result<Self, PcanError> {
         let lib = PcanLibrary::load_from(path)?;
-        Ok(PcanDriver { lib })
+        Ok(Self { lib })
     }
 
     /// Begin configuring a channel on a specific bus type.
@@ -67,6 +67,8 @@ impl PcanDriver {
             PcanBusType::Pci => 1,
             PcanBusType::Lan => 2,
         };
+        // Channel index is 0..=15, so u32 -> u16 truncation cannot happen.
+        #[allow(clippy::cast_possible_truncation)]
         let handle =
             ffi::pcan_handle(bus_code, index as u16).ok_or(PcanError::InvalidChannel(index))?;
 
@@ -106,7 +108,7 @@ struct FdTiming {
 /// Look up FD timing parameters for a nominal bitrate (80 MHz clock).
 ///
 /// Returns `(brp, tseg1, tseg2, sjw)` targeting 70% sample point.
-fn nominal_fd_timing(bitrate_hz: u32) -> Option<FdTiming> {
+const fn nominal_fd_timing(bitrate_hz: u32) -> Option<FdTiming> {
     // bitrate = 80_000_000 / (brp * (1 + tseg1 + tseg2))
     // Use 20 TQ (tseg1=13, tseg2=6) for broad compatibility with different
     // CAN FD adapters. SJW=4 provides good resynchronization tolerance.
@@ -140,7 +142,7 @@ fn nominal_fd_timing(bitrate_hz: u32) -> Option<FdTiming> {
 }
 
 /// Look up FD timing parameters for a data-phase bitrate (80 MHz clock).
-fn data_fd_timing(bitrate_hz: u32) -> Option<FdTiming> {
+const fn data_fd_timing(bitrate_hz: u32) -> Option<FdTiming> {
     match bitrate_hz {
         8_000_000 => Some(FdTiming {
             brp: 1,
@@ -291,6 +293,8 @@ impl ChannelBuilder for PcanChannelBuilder {
             let c_timing = CString::new(timing.as_str())
                 .map_err(|_| PcanError::InvalidFrame("timing string contains null byte".into()))?;
 
+            // SAFETY: initialize_fd() was loaded from PCANBasic.
+            // self.handle is a valid PCAN channel handle and c_timing is a valid null-terminated C string.
             let status = unsafe { (self.lib.initialize_fd)(self.handle, c_timing.as_ptr()) };
             check_status(status)?;
             PcanChannel::new(self.lib, self.handle, true)
@@ -299,6 +303,8 @@ impl ChannelBuilder for PcanChannelBuilder {
             let baud = self.bitrate.ok_or(PcanError::UnsupportedBitrate(0))?;
 
             // Plug & Play hardware (USB, PCI, LAN): hw_type=0, io_port=0, interrupt=0
+            // SAFETY: initialize() was loaded from PCANBasic.
+            // self.handle is a valid PCAN channel handle and baud is a valid PCAN_BAUD_* constant.
             let status = unsafe { (self.lib.initialize)(self.handle, baud, 0, 0, 0) };
             check_status(status)?;
             PcanChannel::new(self.lib, self.handle, false)

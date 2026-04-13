@@ -29,13 +29,13 @@ pub struct KvaserLibrary {
 }
 
 #[cfg(unix)]
-fn default_library_name() -> &'static str {
+const fn default_library_name() -> &'static str {
     // Use the versioned SONAME to avoid relying on the development symlink.
     "libcanlib.so.1"
 }
 
 #[cfg(windows)]
-fn default_library_name() -> &'static str {
+const fn default_library_name() -> &'static str {
     "canlib32.dll"
 }
 
@@ -46,7 +46,10 @@ impl KvaserLibrary {
     }
 
     /// Load CANlib from a custom path.
+    #[allow(clippy::multiple_unsafe_ops_per_block)]
     pub fn load_from(path: &str) -> Result<Arc<Self>, KvaserError> {
+        // SAFETY: All operations are dlsym lookups from a valid library handle.
+        // Each symbol name matches the CANlib C API signature.
         unsafe {
             let lib = Library::new(path)?;
 
@@ -72,7 +75,7 @@ impl KvaserLibrary {
                 .ok()
                 .map(|sym| *sym);
 
-            let kvaser_lib = Arc::new(KvaserLibrary {
+            let kvaser_lib = Arc::new(Self {
                 _lib: lib,
                 initialize_library,
                 open_channel,

@@ -15,9 +15,9 @@ pub enum SocketCanError {
 impl fmt::Display for SocketCanError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SocketCanError::Io(e) => write!(f, "SocketCAN I/O error: {e}"),
-            SocketCanError::InvalidFrame(msg) => write!(f, "invalid frame: {msg}"),
-            SocketCanError::InvalidInterface(msg) => write!(f, "invalid interface: {msg}"),
+            Self::Io(e) => write!(f, "SocketCAN I/O error: {e}"),
+            Self::InvalidFrame(msg) => write!(f, "invalid frame: {msg}"),
+            Self::InvalidInterface(msg) => write!(f, "invalid interface: {msg}"),
         }
     }
 }
@@ -25,7 +25,7 @@ impl fmt::Display for SocketCanError {
 impl std::error::Error for SocketCanError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            SocketCanError::Io(e) => Some(e),
+            Self::Io(e) => Some(e),
             _ => None,
         }
     }
@@ -33,6 +33,6 @@ impl std::error::Error for SocketCanError {
 
 impl From<io::Error> for SocketCanError {
     fn from(e: io::Error) -> Self {
-        SocketCanError::Io(e)
+        Self::Io(e)
     }
 }

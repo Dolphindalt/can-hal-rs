@@ -40,7 +40,7 @@ impl PcanChannel {
         fd_mode: bool,
     ) -> Result<Self, PcanError> {
         let event = ReceiveEvent::new(lib.clone(), handle)?;
-        Ok(PcanChannel {
+        Ok(Self {
             lib,
             handle,
             event,
@@ -63,6 +63,8 @@ impl PcanChannel {
             millis_overflow: 0,
             micros: 0,
         };
+        // SAFETY: read() was loaded from PCANBasic and self.handle is valid from a successful CAN_Initialize.
+        // msg and ts point to valid stack-allocated TPCANMsg and TPCANTimestamp.
         let status = unsafe { (self.lib.read)(self.handle, &mut msg, &mut ts) };
         if status == ffi::PCAN_ERROR_QRCVEMPTY {
             return Ok(None);
@@ -81,6 +83,8 @@ impl PcanChannel {
             data: [0; 64],
         };
         let mut ts: u64 = 0;
+        // SAFETY: read_fd() was loaded from PCANBasic and self.handle is valid from a successful CAN_InitializeFD.
+        // msg and ts point to valid stack-allocated TPCANMsgFD and u64.
         let status = unsafe { (self.lib.read_fd)(self.handle, &mut msg, &mut ts) };
         if status == ffi::PCAN_ERROR_QRCVEMPTY {
             return Ok(None);
@@ -92,6 +96,9 @@ impl PcanChannel {
 
 impl Drop for PcanChannel {
     fn drop(&mut self) {
+        // SAFETY: uninitialize() was loaded from PCANBasic and self.handle is valid.
+        // Errors during cleanup are deliberately ignored.
+        #[allow(clippy::let_underscore_must_use)]
         unsafe {
             let _ = (self.lib.uninitialize)(self.handle);
         }
@@ -107,6 +114,8 @@ impl Transmit for PcanChannel {
 
     fn transmit(&mut self, frame: &CanFrame) -> Result<(), Self::Error> {
         let mut msg = convert::to_pcan_msg(frame);
+        // SAFETY: write() was loaded from PCANBasic and self.handle is valid.
+        // msg points to a valid stack-allocated TPCANMsg.
         let status = unsafe { (self.lib.write)(self.handle, &mut msg) };
         check_status(status)
     }
@@ -130,10 +139,9 @@ impl Receive for PcanChannel {
     }
 
     fn try_receive(&mut self) -> Result<Option<Timestamped<CanFrame, Instant>>, Self::Error> {
-        match self.read_classic()? {
-            Some(frame) => Ok(Some(Timestamped::new(frame, Instant::now()))),
-            None => Ok(None),
-        }
+        Ok(self
+            .read_classic()?
+            .map(|frame| Timestamped::new(frame, Instant::now())))
     }
 
     fn receive_timeout(
@@ -175,6 +183,8 @@ impl TransmitFd for PcanChannel {
             ));
         }
         let mut msg = convert::to_pcan_msg_fd(frame);
+        // SAFETY: write_fd() was loaded from PCANBasic and self.handle is valid.
+        // msg points to a valid stack-allocated TPCANMsgFD.
         let status = unsafe { (self.lib.write_fd)(self.handle, &mut msg) };
         check_status(status)
     }
@@ -210,10 +220,9 @@ impl ReceiveFd for PcanChannel {
                     .into(),
             ));
         }
-        match self.read_fd()? {
-            Some(frame) => Ok(Some(Timestamped::new(frame, Instant::now()))),
-            None => Ok(None),
-        }
+        Ok(self
+            .read_fd()?
+            .map(|frame| Timestamped::new(frame, Instant::now())))
     }
 
     fn receive_fd_timeout(
@@ -281,6 +290,7 @@ impl Filterable for PcanChannel {
         }
 
         if let (Some(from), Some(to)) = (std_min, std_max) {
+            // SAFETY: filter_messages() was loaded from PCANBasic and self.handle is valid.
             let status = unsafe {
                 (self.lib.filter_messages)(self.handle, from, to, ffi::PCAN_MODE_STANDARD)
             };
@@ -288,6 +298,7 @@ impl Filterable for PcanChannel {
         }
 
         if let (Some(from), Some(to)) = (ext_min, ext_max) {
+            // SAFETY: filter_messages() was loaded from PCANBasic and self.handle is valid.
             let status = unsafe {
                 (self.lib.filter_messages)(self.handle, from, to, ffi::PCAN_MODE_EXTENDED)
             };
@@ -298,11 +309,13 @@ impl Filterable for PcanChannel {
     }
 
     fn clear_filters(&mut self) -> Result<(), Self::Error> {
+        // SAFETY: filter_messages() was loaded from PCANBasic and self.handle is valid.
         let status = unsafe {
             (self.lib.filter_messages)(self.handle, 0x000, 0x7FF, ffi::PCAN_MODE_STANDARD)
         };
         check_status(status)?;
 
+        // SAFETY: filter_messages() was loaded from PCANBasic and self.handle is valid.
         let status = unsafe {
             (self.lib.filter_messages)(
                 self.handle,
@@ -322,7 +335,7 @@ impl Filterable for PcanChannel {
 /// For a filter with `id=X` and `mask=M`, the matching set is all IDs where
 /// `(id & mask) == (X & mask)`. The minimum matching ID is `(X & M)` and
 /// the maximum is `(X & M) | (!M & max_id)`.
-fn mask_to_range(filter: &Filter) -> (u32, u32, bool) {
+const fn mask_to_range(filter: &Filter) -> (u32, u32, bool) {
     let is_extended = filter.id.is_extended();
     let max_id = if is_extended { 0x1FFF_FFFF } else { 0x7FF };
     let raw_id = filter.id.raw();
@@ -341,6 +354,7 @@ impl BusStatus for PcanChannel {
     type Error = PcanError;
 
     fn bus_state(&self) -> Result<BusState, Self::Error> {
+        // SAFETY: get_status() was loaded from PCANBasic and self.handle is valid.
         let status = unsafe { (self.lib.get_status)(self.handle) };
 
         if status & ffi::PCAN_ERROR_BUSOFF != 0 {
@@ -358,21 +372,27 @@ impl BusStatus for PcanChannel {
         // PCAN-Basic's support for individual TX/RX error counters varies by
         // hardware. Attempt to read them; fall back to 0 if unsupported.
         let mut rx_errors: u32 = 0;
+        #[allow(clippy::cast_possible_truncation)] // size_of::<u32>() == 4, fits in u32
+        // SAFETY: get_value() was loaded from PCANBasic and self.handle is valid.
+        // rx_errors points to a valid stack-allocated u32 with correct buffer length.
         let status_rx = unsafe {
             (self.lib.get_value)(
                 self.handle,
                 ffi::PCAN_BUSERROR_READ,
-                &mut rx_errors as *mut _ as *mut std::ffi::c_void,
+                std::ptr::from_mut(&mut rx_errors).cast::<std::ffi::c_void>(),
                 std::mem::size_of::<u32>() as u32,
             )
         };
 
         let mut tx_errors: u32 = 0;
+        #[allow(clippy::cast_possible_truncation)] // size_of::<u32>() == 4, fits in u32
+        // SAFETY: get_value() was loaded from PCANBasic and self.handle is valid.
+        // tx_errors points to a valid stack-allocated u32 with correct buffer length.
         let status_tx = unsafe {
             (self.lib.get_value)(
                 self.handle,
                 ffi::PCAN_BUSERROR_WRITE,
-                &mut tx_errors as *mut _ as *mut std::ffi::c_void,
+                std::ptr::from_mut(&mut tx_errors).cast::<std::ffi::c_void>(),
                 std::mem::size_of::<u32>() as u32,
             )
         };

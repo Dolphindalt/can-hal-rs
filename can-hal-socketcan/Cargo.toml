@@ -10,6 +10,9 @@ repository = "https://github.com/Dolphindalt/can-hal-rs"
 keywords = ["can", "can-bus", "socketcan", "canfd", "linux"]
 categories = ["hardware-support", "os::linux-apis"]
 
+[lints]
+workspace = true
+
 [dependencies]
 can-hal = { version = "0.3.1", path = "../can-hal", package = "can-hal-rs" }
 socketcan = "3.5"

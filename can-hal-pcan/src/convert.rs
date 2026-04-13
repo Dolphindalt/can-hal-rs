@@ -14,7 +14,8 @@ use crate::ffi::{
 // ---------------------------------------------------------------------------
 
 /// Encode a `CanId` into (raw_id, msg_type_flags).
-pub(crate) fn to_pcan_id(id: CanId) -> (u32, u8) {
+#[allow(clippy::cast_lossless)] // u16 as u32 is lossless but From is not const-stable
+pub const fn to_pcan_id(id: CanId) -> (u32, u8) {
     match id {
         CanId::Standard(v) => (v as u32, PCAN_MESSAGE_STANDARD),
         CanId::Extended(v) => (v, PCAN_MESSAGE_EXTENDED),
@@ -22,7 +23,7 @@ pub(crate) fn to_pcan_id(id: CanId) -> (u32, u8) {
 }
 
 /// Decode a PCAN (raw_id, msg_type) into a `CanId`.
-pub(crate) fn from_pcan_id(raw_id: u32, msg_type: u8) -> Result<CanId, PcanError> {
+pub fn from_pcan_id(raw_id: u32, msg_type: u8) -> Result<CanId, PcanError> {
     if msg_type & PCAN_MESSAGE_EXTENDED != 0 {
         CanId::new_extended(raw_id)
             .ok_or_else(|| PcanError::InvalidFrame(format!("invalid extended ID: 0x{raw_id:08X}")))
@@ -32,6 +33,8 @@ pub(crate) fn from_pcan_id(raw_id: u32, msg_type: u8) -> Result<CanId, PcanError
                 "standard ID out of range: 0x{raw_id:08X}"
             )));
         }
+        // raw_id is verified <= 0x7FF above, so u32 -> u16 truncation cannot happen.
+        #[allow(clippy::cast_possible_truncation)]
         CanId::new_standard(raw_id as u16)
             .ok_or_else(|| PcanError::InvalidFrame(format!("invalid standard ID: 0x{raw_id:04X}")))
     }
@@ -42,13 +45,15 @@ pub(crate) fn from_pcan_id(raw_id: u32, msg_type: u8) -> Result<CanId, PcanError
 // ---------------------------------------------------------------------------
 
 /// Convert a `CanFrame` to a `TPCANMsg`.
-pub(crate) fn to_pcan_msg(frame: &CanFrame) -> TPCANMsg {
+pub fn to_pcan_msg(frame: &CanFrame) -> TPCANMsg {
     let (id, msg_type) = to_pcan_id(frame.id());
     let mut data = [0u8; 8];
     data[..frame.len()].copy_from_slice(frame.data());
     TPCANMsg {
         id,
         msg_type,
+        // CAN frame length is at most 8, fits in u8.
+        #[allow(clippy::cast_possible_truncation)]
         len: frame.len() as u8,
         data,
     }
@@ -56,7 +61,7 @@ pub(crate) fn to_pcan_msg(frame: &CanFrame) -> TPCANMsg {
 
 /// Convert a `TPCANMsg` to a `CanFrame`.
 /// Returns `Ok(None)` for RTR or status messages.
-pub(crate) fn from_pcan_msg(msg: &TPCANMsg) -> Result<Option<CanFrame>, PcanError> {
+pub fn from_pcan_msg(msg: &TPCANMsg) -> Result<Option<CanFrame>, PcanError> {
     if msg.msg_type & ffi::PCAN_MESSAGE_RTR != 0 || msg.msg_type & ffi::PCAN_MESSAGE_STATUS != 0 {
         return Ok(None);
     }
@@ -72,7 +77,7 @@ pub(crate) fn from_pcan_msg(msg: &TPCANMsg) -> Result<Option<CanFrame>, PcanErro
 // ---------------------------------------------------------------------------
 
 /// Convert a `CanFdFrame` to a `TPCANMsgFD`.
-pub(crate) fn to_pcan_msg_fd(frame: &CanFdFrame) -> TPCANMsgFD {
+pub fn to_pcan_msg_fd(frame: &CanFdFrame) -> TPCANMsgFD {
     let (id, mut msg_type) = to_pcan_id(frame.id());
     msg_type |= PCAN_MESSAGE_FD;
     if frame.brs() {
@@ -86,6 +91,8 @@ pub(crate) fn to_pcan_msg_fd(frame: &CanFdFrame) -> TPCANMsgFD {
     TPCANMsgFD {
         id,
         msg_type,
+        // CAN FD frame length is at most 64, fits in u8.
+        #[allow(clippy::cast_possible_truncation)]
         dlc: dlc_bytes_to_code(frame.len() as u8),
         data,
     }
@@ -93,7 +100,7 @@ pub(crate) fn to_pcan_msg_fd(frame: &CanFdFrame) -> TPCANMsgFD {
 
 /// Convert a `TPCANMsgFD` to a `Frame`.
 /// Returns `Ok(None)` for status messages.
-pub(crate) fn from_pcan_msg_fd(msg: &TPCANMsgFD) -> Result<Option<Frame>, PcanError> {
+pub fn from_pcan_msg_fd(msg: &TPCANMsgFD) -> Result<Option<Frame>, PcanError> {
     if msg.msg_type & ffi::PCAN_MESSAGE_STATUS != 0 {
         return Ok(None);
     }
@@ -123,7 +130,7 @@ pub(crate) fn from_pcan_msg_fd(msg: &TPCANMsgFD) -> Result<Option<Frame>, PcanEr
 /// Convert a byte count to a CAN FD DLC code (0–15).
 ///
 /// Non-standard byte counts are rounded up to the next valid DLC.
-fn dlc_bytes_to_code(bytes: u8) -> u8 {
+const fn dlc_bytes_to_code(bytes: u8) -> u8 {
     match bytes {
         0..=8 => bytes,
         9..=12 => 9,
@@ -132,7 +139,6 @@ fn dlc_bytes_to_code(bytes: u8) -> u8 {
         21..=24 => 12,
         25..=32 => 13,
         33..=48 => 14,
-        49..=64 => 15,
         _ => 15,
     }
 }
@@ -141,7 +147,7 @@ fn dlc_bytes_to_code(bytes: u8) -> u8 {
 ///
 /// Out-of-range codes (> 15) are clamped to 64 to prevent panics when
 /// slicing into a 64-byte buffer with data from an FFI source.
-fn dlc_code_to_bytes(dlc: u8) -> u8 {
+const fn dlc_code_to_bytes(dlc: u8) -> u8 {
     match dlc {
         0..=8 => dlc,
         9 => 12,
@@ -150,7 +156,6 @@ fn dlc_code_to_bytes(dlc: u8) -> u8 {
         12 => 24,
         13 => 32,
         14 => 48,
-        15 => 64,
         _ => 64,
     }
 }

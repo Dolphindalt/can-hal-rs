@@ -18,8 +18,8 @@ pub struct IsoTpFdChannel<C> {
 
 impl<C> IsoTpFdChannel<C> {
     /// Create a new ISO-TP FD channel around a CAN FD channel with the given config.
-    pub fn new(channel: C, config: IsoTpConfig) -> Self {
-        IsoTpFdChannel { channel, config }
+    pub const fn new(channel: C, config: IsoTpConfig) -> Self {
+        Self { channel, config }
     }
 
     /// Consume this ISO-TP channel and return the inner CAN FD channel.
@@ -38,7 +38,7 @@ where
         let overhead = self.config.overhead();
         let max_sf_fd = 62 - overhead;
 
-        if data.len() as u64 > u32::MAX as u64 {
+        if data.len() as u64 > u64::from(u32::MAX) {
             return Err(IsoTpError::PayloadTooLarge);
         }
 
@@ -90,7 +90,7 @@ where
                     std::thread::sleep(st_min_dur);
                 }
 
-                if fc_bs > 0 && block_count >= fc_bs as u16 {
+                if fc_bs > 0 && block_count >= u16::from(fc_bs) {
                     let (new_bs, new_st) = self.wait_for_fc()?;
                     fc_bs = new_bs;
                     st_min_dur = new_st;
@@ -168,45 +168,39 @@ where
                         let parsed = IsoTpFrame::parse(cf.data(), overhead)
                             .map_err(|_| IsoTpError::InvalidFrame)?;
 
-                        match parsed {
-                            IsoTpFrame::ConsecutiveFrame { sn, data } => {
-                                if sn != expected_sn {
-                                    return Err(IsoTpError::SequenceError {
-                                        expected: expected_sn,
-                                        got: sn,
-                                    });
-                                }
-
-                                let bytes_needed = total_len - result.len();
-                                let take = data.len().min(bytes_needed);
-                                result.extend_from_slice(&data[..take]);
-
-                                expected_sn = (expected_sn + 1) & 0x0F;
-                                block_count += 1;
-
-                                cf_deadline = Instant::now() + self.config.timeout;
-
-                                if self.config.block_size > 0
-                                    && block_count >= self.config.block_size as u16
-                                    && result.len() < total_len
-                                {
-                                    self.send_fc(FcFlag::ContinueToSend)?;
-                                    block_count = 0;
-                                }
+                        if let IsoTpFrame::ConsecutiveFrame { sn, data } = parsed {
+                            if sn != expected_sn {
+                                return Err(IsoTpError::SequenceError {
+                                    expected: expected_sn,
+                                    got: sn,
+                                });
                             }
-                            _ => {
-                                // Per ISO 15765-2, unexpected PCI types during
-                                // CF reassembly are silently ignored.
-                                continue;
+
+                            let bytes_needed = total_len - result.len();
+                            let take = data.len().min(bytes_needed);
+                            result.extend_from_slice(&data[..take]);
+
+                            expected_sn = (expected_sn + 1) & 0x0F;
+                            block_count += 1;
+
+                            cf_deadline = Instant::now() + self.config.timeout;
+
+                            if self.config.block_size > 0
+                                && block_count >= u16::from(self.config.block_size)
+                                && result.len() < total_len
+                            {
+                                self.send_fc(FcFlag::ContinueToSend)?;
+                                block_count = 0;
                             }
+                        } else {
+                            // Per ISO 15765-2, unexpected PCI types during
+                            // CF reassembly are silently ignored.
                         }
                     }
 
                     return Ok(result);
                 }
-                _ => {
-                    continue;
-                }
+                _ => {}
             }
         }
     }
@@ -240,12 +234,13 @@ where
             let isotp =
                 IsoTpFrame::parse(frame.data(), overhead).map_err(|_| IsoTpError::InvalidFrame)?;
 
-            match isotp {
-                IsoTpFrame::FlowControl {
-                    flag,
-                    block_size,
-                    st_min,
-                } => match flag {
+            if let IsoTpFrame::FlowControl {
+                flag,
+                block_size,
+                st_min,
+            } = isotp
+            {
+                match flag {
                     FcFlag::ContinueToSend => {
                         let st_dur = interpret_st_min(st_min);
                         return Ok((block_size, st_dur));
@@ -257,14 +252,10 @@ where
                                 return Err(IsoTpError::WaitLimitExceeded);
                             }
                         }
-                        continue;
                     }
                     FcFlag::Overflow => {
                         return Err(IsoTpError::BufferOverflow);
                     }
-                },
-                _ => {
-                    continue;
                 }
             }
         }

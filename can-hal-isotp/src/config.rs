@@ -69,8 +69,9 @@ impl IsoTpConfig {
     /// The default `st_min` of 5 ms provides reliable inter-frame pacing
     /// across different CAN adapters. Set to 0 only if both endpoints are
     /// known to handle back-to-back frames at full bus speed.
-    pub fn new(tx_id: CanId, rx_id: CanId) -> Self {
-        IsoTpConfig {
+    #[must_use]
+    pub const fn new(tx_id: CanId, rx_id: CanId) -> Self {
+        Self {
             tx_id,
             rx_id,
             addressing: AddressingMode::Normal,
@@ -86,13 +87,15 @@ impl IsoTpConfig {
     /// Interpret the raw `st_min` byte as a `Duration`.
     ///
     /// See the `frame::interpret_st_min` function for the encoding rules.
+    #[must_use]
     pub fn st_min_duration(&self) -> Duration {
         crate::frame::interpret_st_min(self.st_min)
     }
 
     /// Returns the number of overhead bytes for the current addressing mode.
     /// Normal = 0 extra bytes, Extended = 1 byte (target address).
-    pub fn overhead(&self) -> usize {
+    #[must_use]
+    pub const fn overhead(&self) -> usize {
         match self.addressing {
             AddressingMode::Normal => 0,
             AddressingMode::Extended { .. } => 1,
@@ -100,7 +103,8 @@ impl IsoTpConfig {
     }
 
     /// Returns the TX target address for Extended addressing, if configured.
-    pub fn tx_target_address(&self) -> Option<u8> {
+    #[must_use]
+    pub const fn tx_target_address(&self) -> Option<u8> {
         match self.addressing {
             AddressingMode::Normal => None,
             AddressingMode::Extended {
@@ -110,7 +114,8 @@ impl IsoTpConfig {
     }
 
     /// Returns the RX target address for Extended addressing, if configured.
-    pub fn rx_target_address(&self) -> Option<u8> {
+    #[must_use]
+    pub const fn rx_target_address(&self) -> Option<u8> {
         match self.addressing {
             AddressingMode::Normal => None,
             AddressingMode::Extended {

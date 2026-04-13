@@ -21,7 +21,8 @@ impl CanFrame {
         }
         let mut buf = [0u8; 8];
         buf[..data.len()].copy_from_slice(data);
-        Some(CanFrame {
+        #[allow(clippy::cast_possible_truncation)] // validated above: data.len() <= 8
+        Some(Self {
             id,
             len: data.len() as u8,
             data: buf,
@@ -29,7 +30,8 @@ impl CanFrame {
     }
 
     /// Returns the frame's CAN identifier.
-    pub fn id(&self) -> CanId {
+    #[must_use]
+    pub const fn id(&self) -> CanId {
         self.id
     }
 
@@ -37,16 +39,19 @@ impl CanFrame {
     ///
     /// For classic CAN 2.0, the data length and the on-wire DLC field are
     /// identical in the range 0--8.
-    pub fn len(&self) -> usize {
+    #[must_use]
+    pub const fn len(&self) -> usize {
         self.len as usize
     }
 
     /// Returns `true` if the frame carries zero data bytes.
-    pub fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.len == 0
     }
 
     /// Returns the data payload.
+    #[must_use]
     pub fn data(&self) -> &[u8] {
         &self.data[..self.len as usize]
     }
@@ -79,7 +84,8 @@ impl CanFdFrame {
         }
         let mut buf = [0u8; 64];
         buf[..data.len()].copy_from_slice(data);
-        Some(CanFdFrame {
+        #[allow(clippy::cast_possible_truncation)] // validated above: data.len() <= 64
+        Some(Self {
             id,
             len: data.len() as u8,
             data: buf,
@@ -89,7 +95,8 @@ impl CanFdFrame {
     }
 
     /// Returns the frame's CAN identifier.
-    pub fn id(&self) -> CanId {
+    #[must_use]
+    pub const fn id(&self) -> CanId {
         self.id
     }
 
@@ -97,27 +104,32 @@ impl CanFdFrame {
     ///
     /// The returned value is always one of the valid CAN FD data lengths:
     /// 0, 1, ..., 8, 12, 16, 20, 24, 32, 48, or 64.
-    pub fn len(&self) -> usize {
+    #[must_use]
+    pub const fn len(&self) -> usize {
         self.len as usize
     }
 
     /// Returns `true` if the frame carries zero data bytes.
-    pub fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.len == 0
     }
 
     /// Returns the data payload.
+    #[must_use]
     pub fn data(&self) -> &[u8] {
         &self.data[..self.len as usize]
     }
 
     /// Returns `true` if the Bit Rate Switch flag is set.
-    pub fn brs(&self) -> bool {
+    #[must_use]
+    pub const fn brs(&self) -> bool {
         self.brs
     }
 
     /// Returns `true` if the Error State Indicator flag is set.
-    pub fn esi(&self) -> bool {
+    #[must_use]
+    pub const fn esi(&self) -> bool {
         self.esi
     }
 }
@@ -131,34 +143,38 @@ pub enum Frame {
 
 impl Frame {
     /// Returns the frame's CAN identifier regardless of frame type.
-    pub fn id(&self) -> CanId {
+    #[must_use]
+    pub const fn id(&self) -> CanId {
         match self {
-            Frame::Can(f) => f.id(),
-            Frame::Fd(f) => f.id(),
+            Self::Can(f) => f.id(),
+            Self::Fd(f) => f.id(),
         }
     }
 
     /// Returns the data payload regardless of frame type.
+    #[must_use]
     pub fn data(&self) -> &[u8] {
         match self {
-            Frame::Can(f) => f.data(),
-            Frame::Fd(f) => f.data(),
+            Self::Can(f) => f.data(),
+            Self::Fd(f) => f.data(),
         }
     }
 
     /// Returns the data length in bytes regardless of frame type.
-    pub fn len(&self) -> usize {
+    #[must_use]
+    pub const fn len(&self) -> usize {
         match self {
-            Frame::Can(f) => f.len(),
-            Frame::Fd(f) => f.len(),
+            Self::Can(f) => f.len(),
+            Self::Fd(f) => f.len(),
         }
     }
 
     /// Returns `true` if the frame carries zero data bytes.
-    pub fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         match self {
-            Frame::Can(f) => f.is_empty(),
-            Frame::Fd(f) => f.is_empty(),
+            Self::Can(f) => f.is_empty(),
+            Self::Fd(f) => f.is_empty(),
         }
     }
 }
@@ -176,21 +192,25 @@ pub struct Timestamped<F, T> {
 
 impl<F, T> Timestamped<F, T> {
     /// Create a new timestamped frame.
-    pub fn new(frame: F, timestamp: T) -> Self {
-        Timestamped { frame, timestamp }
+    #[must_use]
+    pub const fn new(frame: F, timestamp: T) -> Self {
+        Self { frame, timestamp }
     }
 
     /// Returns a reference to the inner frame.
-    pub fn frame(&self) -> &F {
+    #[must_use]
+    pub const fn frame(&self) -> &F {
         &self.frame
     }
 
     /// Returns a reference to the timestamp.
-    pub fn timestamp(&self) -> &T {
+    #[must_use]
+    pub const fn timestamp(&self) -> &T {
         &self.timestamp
     }
 
     /// Consumes self and returns the inner frame.
+    #[must_use]
     pub fn into_frame(self) -> F {
         self.frame
     }

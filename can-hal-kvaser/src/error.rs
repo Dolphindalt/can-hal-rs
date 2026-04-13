@@ -29,7 +29,7 @@ impl fmt::Display for KvaserStatus {
             -19 => "function not supported",
             _ => "unknown error",
         };
-        write!(f, "CANlib error {} ({})", self.0, desc)
+        write!(f, "CANlib error {} ({desc})", self.0)
     }
 }
 
@@ -53,17 +53,17 @@ pub enum KvaserError {
 impl fmt::Display for KvaserError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            KvaserError::LibraryLoad(e) => write!(f, "failed to load CANlib: {e}"),
-            KvaserError::Canlib(s) => write!(f, "CANlib error: {s}"),
-            KvaserError::InvalidFrame(msg) => write!(f, "invalid frame: {msg}"),
-            KvaserError::UnsupportedBitrate(hz) => {
+            Self::LibraryLoad(e) => write!(f, "failed to load CANlib: {e}"),
+            Self::Canlib(s) => write!(f, "CANlib error: {s}"),
+            Self::InvalidFrame(msg) => write!(f, "invalid frame: {msg}"),
+            Self::UnsupportedBitrate(hz) => {
                 write!(
                     f,
                     "unsupported bitrate {hz} bps; use a standard CANlib bitrate"
                 )
             }
-            KvaserError::NotSupported(msg) => write!(f, "not supported: {msg}"),
-            KvaserError::Platform(msg) => write!(f, "platform error: {msg}"),
+            Self::NotSupported(msg) => write!(f, "not supported: {msg}"),
+            Self::Platform(msg) => write!(f, "platform error: {msg}"),
         }
     }
 }
@@ -71,7 +71,7 @@ impl fmt::Display for KvaserError {
 impl std::error::Error for KvaserError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            KvaserError::LibraryLoad(e) => Some(e),
+            Self::LibraryLoad(e) => Some(e),
             _ => None,
         }
     }
@@ -79,7 +79,7 @@ impl std::error::Error for KvaserError {
 
 impl From<libloading::Error> for KvaserError {
     fn from(e: libloading::Error) -> Self {
-        KvaserError::LibraryLoad(e)
+        Self::LibraryLoad(e)
     }
 }
 
@@ -88,7 +88,7 @@ impl From<libloading::Error> for KvaserError {
 /// Per the CANlib documentation, any return value less than zero indicates
 /// failure. Positive non-zero values may indicate success with informational
 /// codes on some API calls.
-pub(crate) fn check_status(status: i32) -> Result<(), KvaserError> {
+pub const fn check_status(status: i32) -> Result<(), KvaserError> {
     if status >= ffi::CAN_OK {
         Ok(())
     } else {

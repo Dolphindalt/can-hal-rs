@@ -4,6 +4,9 @@ version = "0.0.0"
 edition = "2021"
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 can-hal = { path = "../../can-hal", package = "can-hal-rs" }
 can-hal-kvaser = { path = "../../can-hal-kvaser" }
