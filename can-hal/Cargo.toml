@@ -1,6 +1,6 @@
 [package]
 name = "can-hal-rs"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 rust-version = "1.81"
 description = "Hardware-agnostic traits for CAN bus communication"
@@ -18,7 +18,48 @@ default = ["std"]
 std = []
 async = []
 
-[lints]
-workspace = true
+[lints.clippy]
+# Pedantic (enable group, suppress noisy lints)
+pedantic = { level = "warn", priority = -1 }
+doc_markdown = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+similar_names = "allow"
+too_many_lines = "allow"
+enum_glob_use = "allow"
+wildcard_imports = "allow"
+trivially_copy_pass_by_ref = "allow"
+unreadable_literal = "allow"
+struct_excessive_bools = "allow"
+if_not_else = "allow"
+items_after_statements = "allow"
+many_single_char_names = "allow"
+used_underscore_binding = "allow"
+default_trait_access = "allow"
+unnecessary_wraps = "allow"
+manual_assert = "allow"
+verbose_bit_mask = "allow"
+
+# Restriction (cherry-picked for unsafe/FFI discipline)
+undocumented_unsafe_blocks = "warn"
+multiple_unsafe_ops_per_block = "warn"
+panic_in_result_fn = "warn"
+let_underscore_must_use = "warn"
+
+# Nursery (mature, low false-positive lints)
+missing_const_for_fn = "warn"
+use_self = "warn"
+derive_partial_eq_without_eq = "warn"
+needless_pass_by_ref_mut = "warn"
+or_fun_call = "warn"
+debug_assert_with_mut_call = "warn"
+redundant_pub_crate = "warn"
+option_if_let_else = "warn"
+large_stack_frames = "warn"
+
+# Cargo (manifest hygiene)
+negative_feature_names = "warn"
+redundant_feature_names = "warn"
+wildcard_dependencies = "warn"
 
 [dependencies]
