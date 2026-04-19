@@ -14,9 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
       - run: cargo fmt --check
 
   clippy:
@@ -24,10 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
       - run: cargo clippy -p can-hal-rs -p can-hal-isotp --all-targets --features async -- -D warnings
 
   test:
@@ -35,8 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
       - run: cargo test -p can-hal-rs -p can-hal-isotp --features async
 
   build-check:
@@ -44,8 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
       # can-hal-socketcan depends on the `socketcan` crate which builds
       # against Linux headers available on ubuntu-latest.
       - run: cargo check -p can-hal-socketcan
@@ -56,9 +49,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-gnu
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
       - run: cargo clippy -p can-hal-pcan -p can-hal-kvaser --target x86_64-pc-windows-gnu --all-targets -- -D warnings
